@@ -1,0 +1,4 @@
+interface:
+  display_name: "Launch Modal reproduction"
+  short_description: "Plan and explicitly approve a bounded Modal GPU run."
+  default_prompt: "/launch-modal-reproduction Prepare a cost-bounded Modal plan; do not launch without explicit approval."

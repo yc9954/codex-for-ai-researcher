@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Isolated Snippets"
+  short_description: "Verify snippets inside bounded OCI containers"
+  default_prompt: "/run-isolated-snippets Execute and verify these notebook cells with retained run evidence."

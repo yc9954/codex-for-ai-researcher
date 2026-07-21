@@ -1,0 +1,4 @@
+interface:
+  display_name: "Package Research Provenance"
+  short_description: "Package notebook lineage as auditable artifacts"
+  default_prompt: "/package-research-provenance Export this notebook, runs, sources, and lineage as an auditable artifact."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reproduce paper figure"
+  short_description: "Rebuild a cited table or metric as a verified plot"
+  default_prompt: "/reproduce-paper-figure Recreate a paper table or reported metric as an executable, source-grounded figure."

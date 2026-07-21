@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan resource-fit dataset"
+  short_description: "Verify paper datasets and fit them to local resources."
+  default_prompt: "/plan-resource-fit-dataset Verify dataset identity, size, license, and a local subset plan."

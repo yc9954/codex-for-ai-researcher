@@ -1,0 +1,4 @@
+interface:
+  display_name: "Extract Paper Claims"
+  short_description: "Map paper claims to code and testable evidence"
+  default_prompt: "/extract-paper-claims Map this paper's claims to repository evidence and executable invariants."

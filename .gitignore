@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-electron/
+release/
+.paperlab/
+.venv*/
+artifacts/
+.playwright/
+playwright-report/
+test-results/
+*.log
+.DS_Store
+*.mp4
+*.webm
+__pycache__/
+*.pyc

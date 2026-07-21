@@ -1,0 +1,4 @@
+interface:
+  display_name: "Adapt reproduction environment"
+  short_description: "Reconcile pinned dependencies with a bounded runtime."
+  default_prompt: "/adapt-reproduction-environment Produce and verify the smallest compatible environment changes."

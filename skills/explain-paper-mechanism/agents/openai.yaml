@@ -1,0 +1,4 @@
+interface:
+  display_name: "Explain Paper Mechanism"
+  short_description: "Create grounded paper-to-code learning explanations"
+  default_prompt: "/explain-paper-mechanism Turn this claim, equation, code, and run output into a validated learner-facing explanation."

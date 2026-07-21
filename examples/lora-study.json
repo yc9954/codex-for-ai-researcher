@@ -1,0 +1,7 @@
+{
+  "name": "LoRA concept reproduction",
+  "paperUrl": "https://arxiv.org/abs/2106.09685",
+  "repositoryUrl": "https://github.com/microsoft/LoRA",
+  "learningGoal": "Explain and test low-rank weight updates, frozen base weights, training behavior, and merged inference on the available hardware.",
+  "expectedBoundary": "A compact mechanism demo, not a reproduction of the paper's full language-model benchmarks."
+}

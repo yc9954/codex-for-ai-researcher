@@ -1,0 +1,125 @@
+{
+  "name": "codex-lab",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A local evidence-first paper-to-code research workbench.",
+  "author": "Codex for AI researcher contributors",
+  "main": "dist-electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "desktop:compile": "node scripts/build-desktop.mjs",
+    "desktop:build": "npm run build && npm run desktop:compile",
+    "desktop:dev": "npm run desktop:build && electron dist-electron/main.cjs",
+    "desktop:smoke": "npm run desktop:build && node scripts/desktop-smoke.mjs",
+    "desktop:smoke:packaged": "node scripts/packaged-desktop-smoke.mjs",
+    "desktop:package": "npm run desktop:build && electron-builder --dir",
+    "desktop:dist": "npm run desktop:build && electron-builder",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run",
+    "test:contracts": "node scripts/contract-checks.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "test:e2e": "playwright test",
+    "test:preview": "playwright test --config=playwright.preview.config.ts",
+    "test:agent-live": "playwright test --config=playwright.agent.config.ts",
+    "demo:record": "node scripts/record-demo.mjs",
+    "modal:smoke": "bash scripts/modal-connect-smoke.sh",
+    "verify": "node scripts/quality-harness.mjs --profile=core",
+    "quality": "node scripts/quality-harness.mjs --profile=full",
+    "quality:loop": "node scripts/quality-loop.mjs",
+    "runtime:build": "docker build -t codex-lab-python:0.1 runtime",
+    "runtime:smoke": "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --memory 2g --cpus 2 --tmpfs /tmp:rw,noexec,nosuid,size=128m codex-lab-python:0.1 python -c \"import torch; print(torch.__version__); print(torch.ones(2).sum().item())\""
+  },
+  "build": {
+    "appId": "ai.codexresearcher.desktop",
+    "productName": "Codex for AI researcher",
+    "afterPack": "scripts/after-pack.mjs",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "scripts/pdf-extractor-worker.mjs",
+        "to": "app-runtime/scripts/pdf-extractor-worker.mjs"
+      },
+      {
+        "from": "skills",
+        "to": "app-runtime/skills"
+      },
+      {
+        "from": "runtime",
+        "to": "app-runtime/runtime"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "public/brand-logo.png",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "public/brand-logo.png",
+      "target": "nsis"
+    },
+    "linux": {
+      "category": "Education",
+      "icon": "public/brand-logo.png",
+      "target": "AppImage"
+    }
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/language": "^6.12.2",
+    "@codemirror/view": "^6.38.6",
+    "@lezer/highlight": "^1.2.3",
+    "cheerio": "^1.2.0",
+    "codemirror": "^6.0.2",
+    "katex": "^0.18.1",
+    "lucide-react": "^1.25.0",
+    "mdast-util-to-string": "^4.0.0",
+    "pdfjs-dist": "^5.6.205",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "smol-toml": "^1.7.0",
+    "unified": "^11.0.5",
+    "unpdf": "^1.6.2",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.5.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.64.0",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  }
+}

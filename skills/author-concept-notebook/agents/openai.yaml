@@ -1,0 +1,4 @@
+interface:
+  display_name: "Author Concept Notebook"
+  short_description: "Explain why structures matter in runnable notebooks"
+  default_prompt: "/author-concept-notebook Teach this claim through predictions, contrasts, assertions, and transfer tasks."

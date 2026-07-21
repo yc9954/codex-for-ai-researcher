@@ -1,0 +1,4 @@
+interface:
+  display_name: "Orchestrate Paper Demo"
+  short_description: "Coordinate paper-to-demo research end to end"
+  default_prompt: "/orchestrate-paper-demo Turn this paper and repository into a verified hardware-fit concept demo."

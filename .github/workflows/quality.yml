@@ -1,0 +1,31 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  full-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run quality:loop -- --profile=full --max=1
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-evidence
+          path: |
+            .paperlab/harness
+            artifacts/test-results
+          if-no-files-found: warn
