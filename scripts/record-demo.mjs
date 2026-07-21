@@ -35,6 +35,10 @@ const pause = (page, ms) => page.waitForTimeout(ms);
 async function scrubNotebookComments(context) {
   await context.route("**/api/notebooks/*", async (route) => {
     const url = new URL(route.request().url());
+    if (route.request().method() === "POST" && /^\/api\/notebooks\/[^/]+\/save$/.test(url.pathname)) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hash: "recording-notebook-hash" }) });
+      return;
+    }
     if (route.request().method() !== "GET" || !/^\/api\/notebooks\/[^/]+$/.test(url.pathname)) {
       await route.continue();
       return;
@@ -82,7 +86,20 @@ async function encodeGif(rawPath, gifPath, startSeconds, durationSeconds) {
   ]);
 }
 
-async function recordFeature(name, prepare, demonstrate) {
+async function captureRepresentativeImage() {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  await scrubNotebookComments(context);
+  const page = await context.newPage();
+  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  await selectPreparedStudy(page);
+  await openNotebook(page);
+  await page.locator(".notebook-scroll").evaluate((element) => { element.scrollTop = 0; });
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: resolve(assetDir, "rosetta-workbench.png"), type: "png" });
+  await context.close();
+}
+
+async function recordFeature(name, prepare, demonstrate, options = {}) {
   const rawPath = resolve(outputDir, `${name}.webm`);
   const gifPath = resolve(assetDir, `${name}.gif`);
   const context = await browser.newContext({
@@ -95,7 +112,7 @@ async function recordFeature(name, prepare, demonstrate) {
   const videoStartedAt = Date.now();
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await selectPreparedStudy(page);
-  await page.addStyleTag({ content: ".selection-annotate-button,.annotation-editor,.notebook-annotation-notes{display:none!important}" });
+  if (!options.showAnnotations) await page.addStyleTag({ content: ".selection-annotate-button,.annotation-editor,.notebook-annotation-notes{display:none!important}" });
   await prepare(page);
   await pause(page, 350);
 
@@ -114,6 +131,8 @@ async function recordFeature(name, prepare, demonstrate) {
 }
 
 try {
+  await captureRepresentativeImage();
+
   await recordFeature(
     "feature-source-evidence",
     async (page) => {
@@ -154,6 +173,41 @@ try {
   );
 
   await recordFeature(
+    "feature-hardware-adaptation",
+    async (page) => {
+      await openNotebook(page);
+      const heading = page.getByText("Hardware-aware reproduction scope", { exact: true });
+      await heading.waitFor({ state: "visible" });
+      await scrollTo(heading, page, 500);
+    },
+    async (page) => {
+      await pause(page, 700);
+      const dependencies = page.getByText("Target dependency matrix", { exact: true });
+      if (await dependencies.count()) await scrollTo(dependencies, page, 1700);
+      const candidates = page.getByText("Execution candidates", { exact: true });
+      if (await candidates.count()) await scrollTo(candidates, page, 1200);
+    },
+  );
+
+  await recordFeature(
+    "feature-dataset-discovery",
+    async (page) => {
+      await page.getByRole("button", { name: "Datasets" }).click();
+      await page.getByRole("heading", { name: "Resource-fit dataset evidence" }).waitFor({ state: "visible" });
+      await page.locator(".dataset-table").waitFor({ state: "visible" });
+    },
+    async (page) => {
+      await pause(page, 900);
+      const selected = page.locator(".dataset-select-control.is-selected");
+      if (await selected.count()) await scrollTo(selected, page, 1300);
+      const attached = page.getByRole("region", { name: "Attached local dataset" });
+      if (await attached.count()) await scrollTo(attached, page, 1450);
+      const download = page.getByRole("button", { name: "Download selected" });
+      if (await download.count()) await scrollTo(download, page, 900);
+    },
+  );
+
+  await recordFeature(
     "feature-run-outputs",
     async (page) => {
       await openNotebook(page);
@@ -169,6 +223,42 @@ try {
       const bundle = page.locator(".frozen-bundle");
       if (await bundle.count()) await scrollTo(bundle, page, 1500);
     },
+  );
+
+  await recordFeature(
+    "feature-annotation",
+    async (page) => {
+      await openNotebook(page);
+      const thesis = page.locator("[data-notebook-cell-id='paper-guide'] p").first();
+      await thesis.waitFor({ state: "visible" });
+      await scrollTo(thesis, page, 500);
+    },
+    async (page) => {
+      const thesis = page.locator("[data-notebook-cell-id='paper-guide'] p").first();
+      await thesis.evaluate((element) => {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+        const text = walker.nextNode();
+        if (!text) throw new Error("No selectable notebook text");
+        const range = document.createRange();
+        range.setStart(text, 0);
+        range.setEnd(text, Math.min(text.textContent?.length || 0, 90));
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      });
+      const selectionAction = page.locator(".selection-annotate-button");
+      await selectionAction.waitFor({ state: "visible" });
+      await pause(page, 800);
+      await selectionAction.click();
+      await page.getByRole("dialog", { name: "Create annotation" }).waitFor({ state: "visible" });
+      await page.getByLabel("Annotation note").fill("Why does this low-rank constraint preserve useful adaptation directions?");
+      await pause(page, 900);
+      await page.getByRole("dialog", { name: "Create annotation" }).getByRole("button", { name: "Annotate" }).click();
+      await page.getByLabel("Message the research workspace").waitFor({ state: "visible" });
+      await pause(page, 1200);
+    },
+    { showAnnotations: true },
   );
 
   await recordFeature(

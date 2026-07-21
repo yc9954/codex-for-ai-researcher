@@ -19,10 +19,10 @@
   <img alt="GPT-5.6 routed" src="https://img.shields.io/badge/GPT--5.6-routed-2f2f2f" />
 </p>
 
+<h2 align="center"><a href="https://github.com/yc9954/rosetta/releases/latest">Download Rosetta</a></h2>
+
 <p align="center">
-  <a href="https://github.com/yc9954/rosetta/archive/refs/heads/main.zip"><strong>Download source</strong></a>
-  · <a href="#install-and-run">Setup</a>
-  · <a href="#try-the-lora-sample">LoRA sample</a>
+  <a href="https://github.com/yc9954/rosetta/releases/latest"><img src="docs/assets/rosetta-workbench.png" alt="Rosetta showing a source-grounded learning notebook beside executable outputs" width="100%" /></a>
 </p>
 
 Rosetta is a local-first learning workbench for AI engineers. It reads a paper and its pinned implementation, identifies the ideas a learner must understand, and turns those ideas into small experiments that can run on the learner's computer or an approved Modal GPU. It does not claim that a laptop-sized demonstration reproduces a paper's full benchmark. Instead, it keeps four kinds of evidence separate:
@@ -39,6 +39,7 @@ The result is a compact notebook designed to teach the paper's thesis, definitio
 - **Pins the sources.** Downloads a bounded PDF, extracts page-level text, hashes it, and pins a public GitHub repository to a commit without executing repository setup code.
 - **Reads the machine.** Records CPU, memory, disk, detected accelerators, Docker availability, and an explicit local execution budget.
 - **Adapts rather than imitates.** Preserves the mechanism, loss, metrics, freezing behavior, and evaluation meaning while reducing only scale dimensions such as rows, batch size, width, layers, steps, and rank.
+- **Finds a usable dataset.** Extracts paper-named datasets, verifies public Hub candidates and licenses, sizes a bounded local sample to the machine, and mounts the user-selected JSONL sample read-only into local or approved Modal runs.
 - **Builds a learning notebook.** Produces structured prose, KaTeX equations, architecture figures, editable CodeMirror cells, predictions, executable probes, observations, and paper-to-code mappings.
 - **Executes with back-pressure.** Runs cumulative cells in a network-disabled, read-only Docker environment and gives real stderr to a narrowly scoped repair pass.
 - **Uses remote compute deliberately.** Creates a Modal plan, chooses the smallest compatible allowlisted GPU, shows the maximum GPU-only cost, and requires one-time approval before launch.
@@ -60,6 +61,30 @@ Each notebook follows a deliberate learning sequence rather than presenting a su
 <table>
   <tr>
     <td width="34%" valign="top">
+      <h3>Build the smallest honest experiment</h3>
+      <p>Rosetta turns a paper and pinned repository into an editable Jupyter-style lesson: equations, definitions, architecture, a named baseline, real optimization, inference, and a controlled ablation.</p>
+      <p><sub>The compact demo teaches the mechanism while marking the boundary from the paper benchmark.</sub></p>
+    </td>
+    <td width="66%"><img src="docs/assets/feature-learning-notebook.gif" alt="Rosetta moving through a compact learning notebook from definitions and equations to executable code" /></td>
+  </tr>
+  <tr>
+    <td width="34%" valign="top">
+      <h3>Adapt to the machine, not a fantasy machine</h3>
+      <p>Rosetta reads the local budget, pins a dependency decision for every target, and changes scale-only dimensions while keeping the paper's causal mechanism intact.</p>
+      <p><sub>Docker validates the portable path; a reviewed Modal target can receive the same pinned lesson and selected dataset.</sub></p>
+    </td>
+    <td width="66%"><img src="docs/assets/feature-hardware-adaptation.gif" alt="Rosetta presenting a hardware-aware execution contract and dependency matrix" /></td>
+  </tr>
+  <tr>
+    <td width="34%" valign="top">
+      <h3>Find and attach a dataset that fits</h3>
+      <p>The dataset agent extracts paper evidence, checks live Hub metadata, compares each candidate with local memory and disk, then downloads only the approved bounded sample.</p>
+      <p><sub>The selected revision, split, row count, local digest, and read-only mount are retained with the run.</sub></p>
+    </td>
+    <td width="66%"><img src="docs/assets/feature-dataset-discovery.gif" alt="Rosetta showing verified dataset candidates and a selected local learning sample" /></td>
+  </tr>
+  <tr>
+    <td width="34%" valign="top">
       <h3>Read every claim at its source</h3>
       <p>Select a citation to open the pinned PDF at the exact page and highlight the closest supporting passage.</p>
       <p><sub>Paper claims stay distinguishable from Rosetta's explanation.</sub></p>
@@ -68,19 +93,19 @@ Each notebook follows a deliberate learning sequence rather than presenting a su
   </tr>
   <tr>
     <td width="34%" valign="top">
-      <h3>Learn the mechanism in order</h3>
-      <p>Move from thesis and definitions to equations, the original architecture, editable code, and a prediction before execution.</p>
-      <p><sub>The notebook teaches why each component exists, not only how to type it.</sub></p>
+      <h3>Ask from the exact selection</h3>
+      <p>Drag paper text, an equation, a code region, or a generated figure. Rosetta preserves the selected context and moves the question into the research chat without losing the notebook.</p>
+      <p><sub>Annotations are scoped evidence, not an ungrounded side thread.</sub></p>
     </td>
-    <td width="66%"><img src="docs/assets/feature-learning-notebook.gif" alt="A Rosetta learning notebook moving from definitions and equations to the original figure and executable code" /></td>
+    <td width="66%"><img src="docs/assets/feature-annotation.gif" alt="A selected notebook passage becoming an annotation addressed to the research agent" /></td>
   </tr>
   <tr>
     <td width="34%" valign="top">
       <h3>Keep results with the run</h3>
       <p>Inspect generated figures and data files beside their producing cell, then freeze them into a Jupyter-compatible evidence bundle.</p>
-      <p><sub>Every retained output remains tied to its code, run manifest, and execution image.</sub></p>
+      <p><sub>Every retained output remains tied to its code, run manifest, image digest, and dataset digest.</sub></p>
     </td>
-    <td width="66%"><img src="docs/assets/feature-run-outputs.gif" alt="Rosetta retaining generated figures, data files, and a reproducible notebook bundle without comments" /></td>
+    <td width="66%"><img src="docs/assets/feature-run-outputs.gif" alt="Rosetta retaining generated figures and data files with a reproducible notebook bundle" /></td>
   </tr>
   <tr>
     <td width="34%" valign="top">
@@ -158,6 +183,9 @@ flowchart TB
   B --> D[(Pinned evidence store)]
   H[Hardware profile] --> O[Research orchestrator]
   D --> O
+  D --> Q[Dataset evidence agent]
+  H --> Q
+  Q --> U[User-approved bounded JSONL]
 
   O --> R{GPT-5.6 router}
   R -->|canonical artifacts| S[Sol]
@@ -172,6 +200,8 @@ flowchart TB
   G --> N[Editable learning notebook]
   N --> X[Network-disabled Docker]
   N --> M[Approved Modal GPU]
+  U --> X
+  U --> M
   X --> P[(Runs and artifacts)]
   M --> P
   P --> V[Versioned provenance bundle]
@@ -183,6 +213,7 @@ flowchart TB
 | --- | --- |
 | Remote paper and repository | Treated as untrusted evidence, never as instructions; repository setup is not executed. |
 | Model output | Must pass strict JSON, citation, curriculum, code-lifecycle, and resource-adaptation validation. |
+| Dataset selection | A user chooses one verified candidate. Rosetta records Hub revision, config, split, bounded row count, local JSONL digest, and the read-only mount; generated cells never fetch data. |
 | Local execution | Loopback-only API, allowlisted image, no network, read-only root, dropped capabilities, bounded CPU/RAM/PIDs/time. |
 | Modal execution | Separate plan, package allowlist, GPU choice and cost bound, expiring one-time approval, no automatic paid retry. |
 | Artifact | Built only from verified local manifests or matching retained Modal runs; hashes and deviations remain visible. |
@@ -225,11 +256,11 @@ Codex was used both to build the product and as the product's local research run
 - Converted repeated review feedback into repository-wide contracts for PDF rendering, math normalization, source citations, annotation positioning, dataset navigation, Modal cancellation, and artifact retention.
 - Implemented and repeatedly ran a back-pressure loop: ESLint, TypeScript, unit contracts, production build, Electron smoke, preview budget, desktop/mobile Playwright, and Docker execution.
 - Diagnosed the packaged Electron-only `remark-parse` interop failure, fixed the CommonJS boundary, and strengthened the desktop smoke to perform a real LoRA paper/repository intake.
-- Used screenshots and four focused feature clips as verification evidence while keeping only representative public media in this repository.
+- Used screenshots and focused feature clips as verification evidence while keeping only representative public media in this repository.
 
 ### Inside the product
 
-- Codex receives the pinned paper pages, repository snapshot, hardware plan, enabled local skills/hooks, and a strict output contract.
+- Codex receives the pinned paper pages, repository snapshot, hardware plan, selected dataset contract, enabled local skills/hooks, and a strict output contract.
 - Codex creates or repairs the semantic artifact; deterministic code decides whether the result is admissible.
 - Failed validation is evidence for a specific escalation route, not permission to weaken the validator.
 - Interactive chat and cell annotations use the same evidence boundary as notebook generation, so edits remain tied to the source and observed runs.
@@ -242,7 +273,7 @@ This division was a core decision: the model handles synthesis, explanation, and
 2. **Separate reported from reproduced.** Paper metrics are citations until an execution manifest proves that this app produced them.
 3. **Escalate reasoning after failure.** `max` reasoning is a repair tool triggered by concrete runtime evidence, not a default.
 4. **Make remote spend an explicit action.** Modal planning is local; launch requires a visible plan and one-time user approval.
-5. **Preserve the path, not only the answer.** Sources, prompts, model route, notebook versions, runs, figures, comments, and artifacts form a recoverable lineage.
+5. **Preserve the path, not only the answer.** Sources, prompts, model route, dataset selection, notebook versions, runs, figures, annotations, and artifacts form a recoverable lineage.
 6. **Fail closed at workflow gates.** A study cannot advance when its minimum source, saved-notebook, runtime, or approval state is missing.
 
 ## Modal GPU execution
@@ -262,7 +293,7 @@ npm run modal:smoke
 ## Verification
 
 ```bash
-# Portable gate: lint, 50 unit tests, skill contracts, types,
+# Portable gate: lint, unit contracts, skill contracts, types,
 # production build, Electron intake smoke, preview smoke, Playwright
 npm run verify
 

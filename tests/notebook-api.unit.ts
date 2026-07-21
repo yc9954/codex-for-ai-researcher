@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { architectureEquation, codeLearningContextGaps, codexModelRoute, connectorPromptInstructions, defaultConnectorConfig, encodeEvidenceQuote, ensurePaperCitation, executionTargetCandidates, findArchitectureFigureCandidate, groundEvidenceQuote, groundEvidenceQuoteForClaim, groundEvidenceQuoteOnPages, hardwareAdaptationPlan, hasExecutableBaseline, hasGeneratedNotebookProvenance, hasUnsafeAutogradScalarWarning, loadRequestedSkillInstructions, localRunnerPolicy, modalProfileContents, normalizeCitationPdfUrl, normalizePaperUrl, normalizeStoredDatasetPlan, paperGuideMarkdown, parseAppleDisplayProfile, parseDependencyManifest, parseDoi, parseLinuxMemAvailable, parseNvidiaSmiOutput, parseOpenReviewResponse, parseVmStatAvailableMemory, requestedSkillNames, resolveTargetDependencies, resourceAdaptationGaps, resourceFitRecommendation, selectModalGpu, selectPaperCoveragePages, selectRelevantPaperPages, structureReadme, trainingLifecycleGaps, validateRemoteUrl } from "../scripts/notebook-api";
+import { describe, expect, it, vi } from "vitest";
+import { architectureEquation, chooseDatasetPartition, codeLearningContextGaps, codexModelRoute, compactSymbolImplemented, connectorPromptInstructions, defaultConnectorConfig, downloadDatasetViewerRows, encodeEvidenceQuote, ensurePaperCitation, executionTargetCandidates, findArchitectureFigureCandidate, groundEvidenceQuote, groundEvidenceQuoteForClaim, groundEvidenceQuoteOnPages, hardwareAdaptationPlan, hasExecutableBaseline, hasGeneratedNotebookProvenance, hasUnsafeAutogradScalarWarning, isAllowedCompactScaleDimension, loadRequestedSkillInstructions, localRunnerPolicy, modalProfileContents, normalizeCitationPdfUrl, normalizePaperUrl, normalizeStoredDatasetPlan, paperGuideMarkdown, parseAppleDisplayProfile, parseDependencyManifest, parseDoi, parseGithubTreePage, parseLinuxMemAvailable, parseNvidiaSmiOutput, parseOpenReviewResponse, parseVmStatAvailableMemory, pdfExtractorWorkerPath, requestedSkillNames, resolveTargetDependencies, resourceAdaptationGaps, resourceFitRecommendation, selectModalGpu, selectPaperCoveragePages, selectRelevantPaperPages, selectedDatasetContractSource, selectedDatasetFit, structureReadme, trainingLifecycleGaps, validateRemoteUrl } from "../scripts/notebook-api";
 import type { ConnectorConfig } from "../scripts/notebook-api";
 import { normalizeLatexDelimiters, normalizePaperGuideMath } from "../src/markdown-math";
 import { markdownImageUrl } from "../src/markdown-assets";
@@ -78,6 +78,28 @@ model.eval()
 with torch.no_grad():
     inference_output = model(x)
     merged_inference_output = model.merged(x)
+assert torch.allclose(inference_output, merged_inference_output)
+plt.savefig("training-curve.png")
+Path("training-metrics.json").write_text(json.dumps({"loss": final_train_loss}))`;
+    expect(trainingLifecycleGaps(source, true)).toEqual([]);
+  });
+
+  it("accepts a real optimizer imported directly from torch.optim", () => {
+    const source = `from torch.optim import AdamW
+optimizer = AdamW(model.parameters(), lr=0.01)
+training_loss_history = []
+for step in range(20):
+    optimizer.zero_grad()
+    loss = model.loss(x, target)
+    loss.backward()
+    optimizer.step()
+    training_loss_history.append(loss.detach().item())
+initial_train_loss = training_loss_history[0]
+final_train_loss = training_loss_history[-1]
+assert final_train_loss < initial_train_loss
+with torch.no_grad():
+    inference_output = model(x)
+merged_inference_output = inference_output
 assert torch.allclose(inference_output, merged_inference_output)
 plt.savefig("training-curve.png")
 Path("training-metrics.json").write_text(json.dumps({"loss": final_train_loss}))`;
@@ -194,6 +216,45 @@ describe("hardware-aware compactification", () => {
     const boundary = "## Demo boundary\nRun a synthetic tensor with a reduced batch and optimizer-step count.";
     const source = `import os\nimport torch\nrequested = os.environ.get("CODEX_RESEARCH_DEVICE", "cpu")\nif requested == "cuda" and torch.cuda.is_available():\n    execution_device = torch.device("cuda")\nelif requested == "mps" and torch.backends.mps.is_available():\n    execution_device = torch.device("mps")\nelse:\n    execution_device = torch.device("cpu")\nx = torch.ones(4, device=execution_device)\nassert x.sum().item() == 4`;
     expect(resourceAdaptationGaps([{ id: "boundary", kind: "markdown", source: boundary }, { id: "probe", kind: "code", source }], plan)).toEqual([]);
+  });
+
+  it("installs a deterministic read-only data contract for an attached dataset", () => {
+    const basePlan = hardwareAdaptationPlan({ platform: "darwin", arch: "arm64", logicalCores: 10, memoryBytes: 16 * 1024 ** 3, freeMemoryBytes: 8 * 1024 ** 3 });
+    const plan = {
+      ...basePlan,
+      dataset: {
+        ...basePlan.dataset,
+        mode: "subset" as const,
+        recommendedRows: 24,
+        hubId: "org/example-data",
+        revision: "a".repeat(40),
+        localPath: "datasets/study/data.jsonl",
+        sha256: "b".repeat(64),
+      },
+    };
+    const source = selectedDatasetContractSource(plan);
+    expect(source).toContain('os.environ["ROSETTA_DATASET_PATH"]');
+    expect(source).toContain("json.loads(line)");
+    expect(source).toContain("hashlib.sha256");
+    expect(resourceAdaptationGaps([
+      { id: "boundary", kind: "markdown", source: "## Demo boundary\nUse a bounded dataset subset." },
+      { id: "dataset-contract", kind: "code", source: source! },
+    ], plan)).not.toContain("selected dataset is not loaded from the read-only ROSETTA_DATASET_PATH JSONL contract");
+  });
+
+  it("recognizes scale-only shape aliases without admitting semantic changes", () => {
+    const allowed = ["dataset rows", "batch size", "tensor width", "layer count", "optimizer steps", "rank"];
+    expect(isAllowedCompactScaleDimension("dense-layer shape", allowed)).toBe(true);
+    expect(isAllowedCompactScaleDimension("hidden dimension", allowed)).toBe(true);
+    expect(isAllowedCompactScaleDimension("optimization duration", allowed)).toBe(true);
+    expect(isAllowedCompactScaleDimension("attention operation", allowed)).toBe(false);
+    expect(isAllowedCompactScaleDimension("loss definition", allowed)).toBe(false);
+  });
+
+  it("accepts a qualified compact symbol when its class and method are both executable", () => {
+    const source = "class CompactLoRALinear:\n    def merged_weight(self):\n        return self.weight";
+    expect(compactSymbolImplemented("CompactLoRALinear.merged_weight", source)).toBe(true);
+    expect(compactSymbolImplemented("CompactLoRALinear.not_present", source)).toBe(false);
   });
 });
 
@@ -480,7 +541,8 @@ The method freezes the base model. It learns a compact task update.
 
   it("selects full or bounded-subset dataset modes from measured byte budgets", () => {
     const budget = { freeMemoryBytes: 16 * 1024 ** 3, freeDiskBytes: 100 * 1024 ** 3 };
-    expect(resourceFitRecommendation({ originalBytes: 1024 ** 3, memoryBytes: 2 * 1024 ** 3, rows: 10_000 }, budget)).toMatchObject({ mode: "full", recommendedRows: 10_000 });
+    expect(resourceFitRecommendation({ originalBytes: 32 * 1024 ** 2, memoryBytes: 64 * 1024 ** 2, rows: 800 }, budget)).toMatchObject({ mode: "full", recommendedRows: 800 });
+    expect(resourceFitRecommendation({ originalBytes: 1024 ** 3, memoryBytes: 2 * 1024 ** 3, rows: 10_000 }, budget)).toMatchObject({ mode: "subset", recommendedRows: 1_000 });
     const subset = resourceFitRecommendation({ originalBytes: 80 * 1024 ** 3, memoryBytes: 32 * 1024 ** 3, rows: 1_000_000 }, budget);
     expect(subset.mode).toBe("subset");
     expect(subset.recommendedRows).toBeGreaterThan(0);
@@ -503,7 +565,7 @@ The method freezes the base model. It learns a compact task update.
       }],
     });
     const candidate = (normalized.candidates as Array<Record<string, unknown>>)[0];
-    expect(normalized).toMatchObject({ schemaVersion: "1.1", stale: true });
+    expect(normalized).toMatchObject({ schemaVersion: "1.2", stale: true });
     expect(candidate).toMatchObject({
       evidence: [],
       split: "Not retained in this legacy plan",
@@ -511,6 +573,57 @@ The method freezes the base model. It learns a compact task update.
       verification: "registry-name-match",
     });
     expect(candidate.hub).toMatchObject({ identityScore: null });
+  });
+
+  it("extracts repository paths from a public GitHub tree page without trusting unrelated links", () => {
+    const parsed = parseGithubTreePage(`
+      <a href="/microsoft/LoRA/tree/abc123/loralib">library</a>
+      <a href="/microsoft/LoRA/blob/abc123/loralib/layers.py">layers</a>
+      <a href="/other/repo/blob/abc123/steal.py">other</a>
+      <a href="https://example.com/microsoft/LoRA/blob/abc123/no.py">external</a>
+    `, "microsoft", "LoRA", "abc123");
+    expect(parsed).toEqual({ directories: ["loralib"], files: ["loralib/layers.py"] });
+  });
+
+  it("resolves the PDF worker from the active Rosetta runtime root", () => {
+    expect(pdfExtractorWorkerPath("/Applications/Rosetta.app/Contents/Resources/app-runtime")).toBe("/Applications/Rosetta.app/Contents/Resources/app-runtime/scripts/pdf-extractor-worker.mjs");
+  });
+
+  it("chooses the paper split and default config for a viewer-backed dataset", () => {
+    expect(chooseDatasetPartition([
+      { config: "alternate", split: "train" },
+      { config: "default", split: "train" },
+      { config: "default", split: "validation" },
+    ], "training split")).toEqual({ config: "default", split: "train" });
+  });
+
+  it("uses an attached dataset instead of silently falling back to synthetic data", () => {
+    expect(selectedDatasetFit({ selection: {
+      status: "ready", hubId: "owner/data", revision: "abc", config: "default", split: "train", mode: "subset",
+      rowCount: 128, sizeBytes: 4096, sha256: "a".repeat(64), localPath: "datasets/study/key/data.jsonl",
+    } })).toMatchObject({ mode: "subset", recommendedRows: 128, hubId: "owner/data", localPath: "datasets/study/key/data.jsonl" });
+  });
+
+  it("downloads a bounded viewer sample as deterministic JSONL", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const offset = Number(url.searchParams.get("offset"));
+      const length = Number(url.searchParams.get("length"));
+      const rows = Array.from({ length: Math.min(length, 3 - offset) }, (_value, index) => ({ row_idx: offset + index, row: { value: `row-${offset + index}` } }));
+      return new Response(JSON.stringify({ rows }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const downloaded = await downloadDatasetViewerRows("owner/data", "default", "train", 3);
+      expect(downloaded).toMatchObject({ rowCount: 3, truncatedCellCount: 0 });
+      expect(downloaded.content.trim().split("\n").map((line) => JSON.parse(line))).toEqual([
+        { rowIndex: 0, row: { value: "row-0" } },
+        { rowIndex: 1, row: { value: "row-1" } },
+        { rowIndex: 2, row: { value: "row-2" } },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not mistake a saved source-audit notebook for a generated mechanism demo", () => {

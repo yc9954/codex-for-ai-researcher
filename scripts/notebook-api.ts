@@ -26,6 +26,7 @@ const RUNS_ROOT = join(DATA_ROOT, "runs");
 const NOTEBOOKS_ROOT = join(DATA_ROOT, "notebooks");
 const ARTIFACTS_ROOT = join(DATA_ROOT, "artifacts");
 const STUDIES_ROOT = join(DATA_ROOT, "studies");
+const DATASETS_ROOT = join(DATA_ROOT, "datasets");
 const CONNECTORS_ROOT = join(DATA_ROOT, "connectors");
 const CONNECTORS_PATH = join(CONNECTORS_ROOT, "config.json");
 const PAPER_CACHE_ROOT = join(DATA_ROOT, "sources", "papers");
@@ -42,7 +43,13 @@ const MAX_FETCH_BYTES = 2 * 1024 * 1024;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 const MAX_OUTPUT_CHARS = 32_000;
 const MAX_MESSAGE_CHARS = 10_000;
-const MAX_AGENT_RESPONSE_CHARS = 60_000;
+// A complete lesson contains grounded prose plus several executable cells. Never
+// silently slice it: truncating JSON produces a misleading schema failure and
+// discards the agent's valid work. The schema still bounds every individual
+// field; this is only a transport ceiling for the assembled document.
+const MAX_AGENT_RESPONSE_CHARS = 900_000;
+const MAX_LOCAL_DATASET_ROWS = 1_000;
+const MAX_LOCAL_DATASET_BYTES = 128 * 1024 * 1024;
 const AGENT_EXECUTION_TIMEOUT_MS = 240_000;
 const NOTEBOOK_GENERATION_AGENT_TIMEOUT_MS = 720_000;
 const FETCH_TIMEOUT_MS = 15_000;
@@ -315,6 +322,10 @@ export interface HardwareAdaptationPlan {
     recommendedRows: number | null;
     source: "dataset-plan" | "mechanism-demo";
     rationale: string;
+    hubId?: string;
+    revision?: string | null;
+    localPath?: string;
+    sha256?: string;
   };
   repositoryRisks: Array<{ kind: string; severity: string; evidence: string; path?: string }>;
   limitations: string[];
@@ -971,6 +982,17 @@ const HubDatasetSizeSchema = z.object({
     }),
   }),
 });
+const HubDatasetParquetSchema = z.object({
+  parquet_files: z.array(z.object({
+    dataset: z.string().min(1).max(300),
+    config: z.string().min(1).max(300),
+    split: z.string().min(1).max(300),
+    url: z.string().url(),
+    filename: z.string().max(1_000).optional(),
+    size: z.number().int().nonnegative().optional(),
+  }).passthrough()).min(1).max(20_000),
+}).passthrough();
+const SelectDatasetBodySchema = z.object({ hubId: z.string().trim().min(1).max(300) }).strict();
 
 const PAPER_GUIDE_EVIDENCE_JSON_SCHEMA = {
   type: "array", minItems: 1, maxItems: 4,
@@ -2254,24 +2276,96 @@ function repositoryCompatibility(commitSha: string | undefined, manifests: Depen
   };
 }
 
-async function inspectRepositorySources(owner: string, name: string, commitSha: string | undefined, warnings: string[]): Promise<RepositorySourceInspection[]> {
+export function parseGithubTreePage(html: string, owner: string, name: string, ref: string): { directories: string[]; files: string[] } {
+  const $ = load(html);
+  const directories = new Set<string>();
+  const files = new Set<string>();
+  $("a[href]").each((_index, element) => {
+    const href = $(element).attr("href");
+    if (!href) return;
+    let pathname: string;
+    try {
+      const target = new URL(href, "https://github.com");
+      if (!GITHUB_WEB_HOSTS.has(target.hostname.toLowerCase())) return;
+      pathname = decodeURIComponent(target.pathname);
+    } catch { return; }
+    for (const kind of ["tree", "blob"] as const) {
+      const prefix = `/${owner}/${name}/${kind}/${ref}`;
+      if (!pathname.startsWith(`${prefix}/`)) continue;
+      const path = pathname.slice(prefix.length + 1).replace(/^\/+|\/+$/g, "");
+      if (!path || path.includes("\0") || path.split("/").some((part) => part === "." || part === "..")) continue;
+      (kind === "tree" ? directories : files).add(path);
+    }
+  });
+  return { directories: [...directories], files: [...files] };
+}
+
+function repositorySourceScore(path: string): number {
+  const lower = path.toLowerCase();
+  return (/(?:model|module|layer|architecture|network|train|eval|metric|loss|optimizer|lora|adapter)/.test(lower) ? 20 : 0)
+    - path.split("/").length
+    - (/(?:test|example|demo)/.test(lower) ? 4 : 0);
+}
+
+async function inspectRepositorySourcesFromWeb(owner: string, name: string, commitSha: string, initialHtml: string | undefined, initialRef?: string): Promise<string[]> {
+  const sourceExtensions = new Set([".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".cpp", ".cc", ".c", ".cu", ".sh"]);
+  const directories = new Set<string>();
+  const files = new Set<string>();
+  const visited = new Set<string>();
+  const collect = (html: string) => {
+    const parsed = parseGithubTreePage(html, owner, name, commitSha);
+    for (const directory of parsed.directories) directories.add(directory);
+    for (const path of parsed.files) if (sourceExtensions.has(extname(path).toLowerCase())) files.add(path);
+  };
+  if (initialHtml) {
+    const parsed = parseGithubTreePage(initialHtml, owner, name, initialRef || commitSha);
+    for (const directory of parsed.directories) directories.add(directory);
+    for (const path of parsed.files) if (sourceExtensions.has(extname(path).toLowerCase())) files.add(path);
+  } else {
+    try {
+      collect(await fetchText(`https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/tree/${commitSha}`, { Accept: "text/html,application/xhtml+xml" }, GITHUB_WEB_HOSTS));
+    } catch {
+      // The caller reports a blocked source map when no path can be recovered.
+    }
+  }
+  const queue = [...directories].sort((left, right) => repositorySourceScore(right) - repositorySourceScore(left));
+  while (queue.length > 0 && visited.size < 24 && files.size < 120) {
+    const directory = queue.shift()!;
+    if (visited.has(directory)) continue;
+    visited.add(directory);
+    const encodedDirectory = directory.split("/").map(encodeURIComponent).join("/");
+    try {
+      const html = await fetchText(`https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/tree/${commitSha}/${encodedDirectory}`, { Accept: "text/html,application/xhtml+xml" }, GITHUB_WEB_HOSTS);
+      const before = new Set(directories);
+      collect(html);
+      for (const candidate of directories) if (!before.has(candidate) && !visited.has(candidate)) queue.push(candidate);
+      queue.sort((left, right) => repositorySourceScore(right) - repositorySourceScore(left));
+    } catch {
+      // A missing directory page does not invalidate files already pinned from other pages.
+    }
+  }
+  return [...files];
+}
+
+async function inspectRepositorySources(owner: string, name: string, commitSha: string | undefined, warnings: string[], initialHtml?: string, initialRef?: string): Promise<RepositorySourceInspection[]> {
   if (!commitSha) return [];
   const headers = githubHeaders();
-  let tree: { tree?: Array<{ path?: string; type?: string; size?: number }>; truncated?: boolean };
+  let entries: Array<{ path: string; type: string; size?: number }> = [];
   try {
-    tree = await fetchJson<{ tree?: Array<{ path?: string; type?: string; size?: number }>; truncated?: boolean }>(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/git/trees/${commitSha}?recursive=1`, headers, GITHUB_API_HOSTS);
+    const tree = await fetchJson<{ tree?: Array<{ path?: string; type?: string; size?: number }>; truncated?: boolean }>(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/git/trees/${commitSha}?recursive=1`, headers, GITHUB_API_HOSTS);
+    if (tree.truncated) warnings.push("GitHub truncated the recursive repository tree; the source snapshot is partial.");
+    const sourceExtensions = new Set([".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".cpp", ".cc", ".c", ".cu", ".sh"]);
+    entries = (tree.tree || []).filter((entry): entry is { path: string; type: string; size?: number } => Boolean(entry.path && entry.type === "blob" && sourceExtensions.has(extname(entry.path).toLowerCase()) && (entry.size ?? 0) <= 200_000));
   } catch {
-    warnings.push("The pinned repository tree could not be read; code-level compatibility remains blocked.");
-    return [];
+    const paths = await inspectRepositorySourcesFromWeb(owner, name, commitSha, initialHtml, initialRef);
+    entries = paths.map((path) => ({ path, type: "blob" }));
+    if (entries.length > 0) warnings.push("GitHub API tree access was limited; pinned public repository pages were crawled for implementation files instead.");
+    else {
+      warnings.push("The pinned repository tree could not be read from the API or public pages; code-level compatibility remains blocked.");
+      return [];
+    }
   }
-  if (tree.truncated) warnings.push("GitHub truncated the recursive repository tree; the source snapshot is partial.");
-  const sourceExtensions = new Set([".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".cpp", ".cc", ".c", ".cu", ".sh"]);
-  const entries = (tree.tree || []).filter((entry): entry is { path: string; type: string; size?: number } => Boolean(entry.path && entry.type === "blob" && sourceExtensions.has(extname(entry.path).toLowerCase()) && (entry.size ?? 0) <= 200_000));
-  const score = (path: string) => {
-    const lower = path.toLowerCase();
-    return (/(?:model|module|layer|architecture|network|train|eval|metric|loss|optimizer|lora|adapter)/.test(lower) ? 20 : 0) - path.split("/").length - (/(?:test|example|demo)/.test(lower) ? 4 : 0);
-  };
-  const selected = entries.sort((left, right) => score(right.path) - score(left.path) || left.path.localeCompare(right.path)).slice(0, 40);
+  const selected = entries.sort((left, right) => repositorySourceScore(right.path) - repositorySourceScore(left.path) || left.path.localeCompare(right.path)).slice(0, 40);
   const results = await Promise.allSettled(selected.map(async (entry) => {
     const encodedPath = entry.path.split("/").map(encodeURIComponent).join("/");
     const raw = await fetchText(`https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${commitSha}/${encodedPath}`, { Accept: "text/plain" }, GITHUB_RAW_HOSTS);
@@ -2308,7 +2402,7 @@ async function inspectRepositoryPage(owner: string, name: string, warnings: stri
   if (!commitSha) warnings.push("The public repository page did not expose an immutable commit SHA.");
   if (readmeSections.length === 0) warnings.push("The repository was pinned, but a conventional README could not be read at that commit.");
   const dependencyManifests = await inspectDependencyManifests(owner, name, commitSha, manifests, warnings);
-  const sourceFiles = await inspectRepositorySources(owner, name, commitSha, warnings);
+  const sourceFiles = await inspectRepositorySources(owner, name, commitSha, warnings, html, defaultBranch);
   return {
     url: pageUrl,
     owner,
@@ -2372,7 +2466,7 @@ async function inspectRepository(input: string, warnings: string[]): Promise<Rep
   if (optional[1].status === "rejected") warnings.push("Repository metadata was found, but the README could not be read.");
   if (optional[2].status === "rejected") warnings.push("Repository metadata was found, but root dependency manifests could not be listed.");
   const dependencyManifests = await inspectDependencyManifests(owner, name, commit, manifests, warnings);
-  const sourceFiles = await inspectRepositorySources(owner, name, commit, warnings);
+  const sourceFiles = await inspectRepositorySources(owner, name, commit, warnings, undefined, repository.default_branch);
 
   return {
     url: repository.html_url,
@@ -2390,6 +2484,24 @@ async function inspectRepository(input: string, warnings: string[]): Promise<Rep
     sourceFiles,
     compatibility: repositoryCompatibility(commit, dependencyManifests, sourceFiles),
   };
+}
+
+export function pdfExtractorWorkerPath(root = process.env.ROSETTA_APP_ROOT || process.cwd()): string {
+  return resolve(root, "scripts/pdf-extractor-worker.mjs");
+}
+
+async function runPdfExtractorWorker(sourcePath: string, workerOutput: string): Promise<void> {
+  try {
+    await execFileAsync(process.execPath, ["--max-old-space-size=512", pdfExtractorWorkerPath(), sourcePath, workerOutput], {
+      timeout: 60_000,
+      maxBuffer: 512 * 1024,
+      env: NODE_CHILD_ENV,
+    });
+  } catch (error) {
+    const stderr = typeof (error as { stderr?: unknown }).stderr === "string" ? (error as { stderr: string }).stderr : "";
+    const detail = compactText(stderr, 320) || "the bundled extractor did not complete";
+    throw new ApiError(`Rosetta PDF extraction failed: ${detail}`, 502);
+  }
 }
 
 async function extractPaperDocument(paper: PaperInspection): Promise<{ document: Omit<PaperDocumentInspection, "retrievalMode">; pagesPath: string; retrievalMode: "live" | "cache" }> {
@@ -2418,11 +2530,7 @@ async function extractPaperDocument(paper: PaperInspection): Promise<{ document:
     const workerOutput = join(cacheDir, `.pages-${randomUUID()}.json`);
     await writeFile(sourcePath, source);
     try {
-      await execFileAsync(process.execPath, ["--max-old-space-size=512", resolve("scripts/pdf-extractor-worker.mjs"), sourcePath, workerOutput], {
-        timeout: 60_000,
-        maxBuffer: 512 * 1024,
-        env: NODE_CHILD_ENV,
-      });
+      await runPdfExtractorWorker(sourcePath, workerOutput);
       const extracted = parseInput(ExtractedPagesSchema, JSON.parse(await readFile(workerOutput, "utf8")));
       const characterCount = extracted.pages.reduce((total, page) => total + page.length, 0);
       if (characterCount < 100) throw new ApiError("The PDF did not contain enough extractable text", 422);
@@ -2500,7 +2608,7 @@ async function uploadPaper(source: Buffer, rawFilename: string): Promise<Uploade
     const workerOutput = join(uploadDir, `.pages-${randomUUID()}.json`);
     await writeFile(sourcePath, source);
     try {
-      await execFileAsync(process.execPath, ["--max-old-space-size=512", resolve("scripts/pdf-extractor-worker.mjs"), sourcePath, workerOutput], { timeout: 60_000, maxBuffer: 512 * 1024, env: NODE_CHILD_ENV });
+      await runPdfExtractorWorker(sourcePath, workerOutput);
       const extracted = parseInput(ExtractedPagesSchema, JSON.parse(await readFile(workerOutput, "utf8")));
       const characterCount = extracted.pages.reduce((total, page) => total + page.length, 0);
       if (characterCount < 100) throw new ApiError("The uploaded PDF did not contain enough extractable text", 422);
@@ -2908,8 +3016,11 @@ async function runCodexAgent(prompt: string, outputDirectory: string, workload: 
     if (outputSchemaPath) await atomicJson(outputSchemaPath, outputSchema);
     const startedAt = Date.now();
     await executeCodexPrompt(prompt, route, outputPath, outputSchemaPath, signal, timeoutMs);
-    const answer = (await readFile(outputPath, "utf8")).trim().slice(0, MAX_AGENT_RESPONSE_CHARS);
+    const answer = (await readFile(outputPath, "utf8")).trim();
     if (!answer) throw new ApiError("Codex completed without a response", 502);
+    if (answer.length > MAX_AGENT_RESPONSE_CHARS) {
+      throw new ApiError(`Codex response exceeded the ${MAX_AGENT_RESPONSE_CHARS.toLocaleString("en-US")}-character lesson transport limit`, 502);
+    }
     return {
       answer,
       status,
@@ -3051,8 +3162,21 @@ export function localRunnerPolicy(input: { logicalCores: number; memoryBytes: nu
   };
 }
 
-function selectedDatasetFit(datasetPlan: unknown): HardwareAdaptationPlan["dataset"] {
+export function selectedDatasetFit(datasetPlan: unknown): HardwareAdaptationPlan["dataset"] {
   const plan = asRecord(datasetPlan);
+  const selection = normalizedDatasetSelection(plan?.selection);
+  if (selection) {
+    return {
+      mode: selection.mode === "full" ? "full" : "subset",
+      recommendedRows: selection.rowCount as number,
+      source: "dataset-plan",
+      rationale: `Use the user-approved ${selection.hubId} ${selection.split || "selected"} sample mounted read-only at /dataset/data.jsonl. The local SHA-256 digest is recorded with the run.`,
+      hubId: selection.hubId as string,
+      revision: typeof selection.revision === "string" ? selection.revision : null,
+      localPath: selection.localPath as string,
+      sha256: selection.sha256 as string,
+    };
+  }
   const candidates = Array.isArray(plan?.candidates) ? plan.candidates.map(asRecord).filter(Boolean) as Record<string, unknown>[] : [];
   const selected = candidates.find((candidate) => {
     const mode = asRecord(candidate.fit)?.mode;
@@ -3075,6 +3199,28 @@ function selectedDatasetFit(datasetPlan: unknown): HardwareAdaptationPlan["datas
       ? "No verified candidate is safe to download automatically; keep the notebook to a mechanism-level proxy."
       : "No verified dataset plan exists, so use a deterministic synthetic proxy and make the benchmark boundary explicit.",
   };
+}
+
+async function datasetMountForNotebook(notebookId: string): Promise<{ directory: string; selection: Record<string, unknown> } | null> {
+  if (!notebookId.endsWith("-evidence-notebook")) return null;
+  const studyId = safeId(notebookId.slice(0, -"-evidence-notebook".length));
+  let plan: Record<string, unknown>;
+  try { plan = normalizeStoredDatasetPlan(JSON.parse(await readFile(join(STUDIES_ROOT, studyId, "dataset-plan.json"), "utf8"))); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const selection = normalizedDatasetSelection(plan.selection);
+  if (!selection) return null;
+  const localPath = selection.localPath as string;
+  const absolutePath = resolve(DATA_ROOT, localPath);
+  const relativePath = relative(DATASETS_ROOT, absolutePath);
+  if (!relativePath || relativePath.startsWith("..") || resolve(DATASETS_ROOT, relativePath) !== absolutePath) throw new ApiError("The selected dataset path escaped Rosetta storage", 500);
+  const metadata = await lstat(absolutePath).catch(() => null);
+  if (!metadata?.isFile() || metadata.isSymbolicLink() || metadata.size > MAX_LOCAL_DATASET_BYTES) throw new ApiError("The selected local dataset is missing or invalid. Download it again", 409);
+  const content = await readFile(absolutePath);
+  if (hash(content) !== selection.sha256) throw new ApiError("The selected local dataset no longer matches its recorded digest", 409);
+  return { directory: dirname(absolutePath), selection };
 }
 
 export function executionTargetCandidates(
@@ -3405,6 +3551,7 @@ async function runCell(notebook: NotebookInput, targetCellId: string, parentRunI
   const notebookHash = notebookSourceHash(notebook);
   const codeHash = hash(codeCells.map((cell) => `${cell.id}\n${cell.source}`).join("\n---\n"));
   const runnerPolicy = localRunnerPolicy({ logicalCores: cpus().length, memoryBytes: totalmem(), freeMemoryBytes: await availableMemoryBytes() });
+  const datasetMount = await datasetMountForNotebook(notebookId);
   const startedAt = new Date();
   let dockerError = "";
 
@@ -3421,6 +3568,11 @@ async function runCell(notebook: NotebookInput, targetCellId: string, parentRunI
       "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m",
       "--tmpfs", "/workspace:rw,noexec,nosuid,size=64m,uid=10001,gid=10001",
       "--mount", `type=bind,source=${runDir},target=/input,readonly`,
+      ...(datasetMount ? [
+        "--mount", `type=bind,source=${datasetMount.directory},target=/dataset,readonly`,
+        "--env", "ROSETTA_DATASET_PATH=/dataset/data.jsonl",
+        "--env", "ROSETTA_DATASET_MANIFEST=/dataset/selection.json",
+      ] : []),
       "--workdir", "/workspace",
       "--env", "HOME=/tmp",
       "--env", "CODEX_RESEARCH_DEVICE=cpu",
@@ -3491,7 +3643,18 @@ async function runCell(notebook: NotebookInput, targetCellId: string, parentRunI
     startedAt: startedAt.toISOString(),
     endedAt: endedAt.toISOString(),
     durationMs: endedAt.getTime() - startedAt.getTime(),
-    policy: { network: "none", cpus: runnerPolicy.cpus, memory: runnerPolicy.memoryDockerValue, memoryBytes: runnerPolicy.memoryBytes, workspace: "64m tmpfs", pids: 64, timeoutSeconds: runnerPolicy.timeoutSeconds, rootFilesystem: "read-only", backend: runnerPolicy.backend, deviceEnvironment: "cpu" },
+    policy: {
+      network: "none", cpus: runnerPolicy.cpus, memory: runnerPolicy.memoryDockerValue, memoryBytes: runnerPolicy.memoryBytes,
+      workspace: "64m tmpfs", pids: 64, timeoutSeconds: runnerPolicy.timeoutSeconds, rootFilesystem: "read-only", backend: runnerPolicy.backend, deviceEnvironment: "cpu",
+      dataset: datasetMount ? {
+        hubId: datasetMount.selection.hubId,
+        revision: datasetMount.selection.revision,
+        rowCount: datasetMount.selection.rowCount,
+        sha256: datasetMount.selection.sha256,
+        mountPath: "/dataset/data.jsonl",
+        readOnly: true,
+      } : null,
+    },
     diagnostic: dockerError || undefined,
     cells: result.cells,
     artifacts,
@@ -4215,7 +4378,9 @@ function serverNotebookId(study: StudyInspection): string {
 
 export function trainingLifecycleGaps(executableText: string, requiresMergedInference: boolean): string[] {
   const checks: Array<[string, RegExp]> = [
-    ["torch optimizer", /\btorch\.optim\.[A-Za-z_]+\s*\(/],
+    // These are all real PyTorch optimizer constructions. Compact lessons
+    // commonly use either a module alias or a direct class import.
+    ["torch optimizer", /(?:\b(?:torch\.optim|optim)\.[A-Za-z_]+\s*\(|\bfrom\s+torch\.optim\s+import\s+[^\n]+[\s\S]{0,400}?\b[A-Za-z_]*optimizer\s*=\s*[A-Za-z_][A-Za-z0-9_]*\s*\()/],
     ["repeated optimization loop", /\bfor\s+\w+\s+in\s+range\s*\(/],
     ["optimizer zero_grad", /\boptimizer\.zero_grad\s*\(/],
     ["loss backward", /\.backward\s*\(/],
@@ -4321,7 +4486,84 @@ export function resourceAdaptationGaps(cells: GeneratedLearningCell[], plan: Har
     gaps.push("first demo boundary does not name a reduced scale dimension");
   }
   if (plan.dataset.mode === "synthetic-proxy" && !/\bsynthetic\b/i.test(boundary)) gaps.push("synthetic proxy dataset boundary is not explicit");
+  if (plan.dataset.localPath && (!/ROSETTA_DATASET_PATH/.test(executableText) || !/json\.loads?\s*\(/.test(executableText))) {
+    gaps.push("selected dataset is not loaded from the read-only ROSETTA_DATASET_PATH JSONL contract");
+  }
   return [...new Set(gaps)];
+}
+
+/**
+ * This is deliberately server-owned rather than model-authored. A selected
+ * dataset is an execution/provenance contract, so its mount, digest, and row
+ * ceiling must be enforced even when the compact mechanism uses a pedagogical
+ * tensor representation instead of the raw task format.
+ */
+export function selectedDatasetContractSource(plan: HardwareAdaptationPlan): string | null {
+  if (!plan.dataset.localPath || !plan.dataset.sha256 || !plan.dataset.recommendedRows) return null;
+  const maximumRows = Math.max(1, plan.dataset.recommendedRows);
+  const hubId = JSON.stringify(plan.dataset.hubId || "selected dataset");
+  const revision = JSON.stringify(plan.dataset.revision || "unreported");
+  const expectedSha = JSON.stringify(plan.dataset.sha256);
+  return `import hashlib
+import json
+import os
+from pathlib import Path
+
+dataset_path = Path(os.environ["ROSETTA_DATASET_PATH"])
+manifest_path = Path(os.environ["ROSETTA_DATASET_MANIFEST"])
+assert dataset_path.is_file()
+assert manifest_path.is_file()
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+dataset_sha256 = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
+assert dataset_sha256 == manifest["sha256"] == ${expectedSha}
+
+dataset_records = []
+with dataset_path.open("r", encoding="utf-8") as handle:
+    for line in handle:
+        if not line.strip():
+            continue
+        dataset_records.append(json.loads(line))
+        if len(dataset_records) >= ${maximumRows}:
+            break
+
+assert dataset_records
+assert len(dataset_records) <= ${maximumRows}
+assert all(isinstance(record, dict) and "rowIndex" in record and "row" in record for record in dataset_records)
+dataset_row_indices = [record["rowIndex"] for record in dataset_records]
+assert dataset_row_indices == sorted(dataset_row_indices)
+dataset_contract = {
+    "hubId": ${hubId},
+    "revision": ${revision},
+    "rowsLoaded": len(dataset_records),
+    "sha256": dataset_sha256,
+    "mount": str(dataset_path),
+}
+Path("dataset-contract.json").write_text(json.dumps(dataset_contract, indent=2, sort_keys=True), encoding="utf-8")
+print(dataset_contract)`;
+}
+
+export function isAllowedCompactScaleDimension(dimension: string, allowedDimensions: string[]): boolean {
+  const normalized = dimension.toLowerCase().trim();
+  const aliases: Array<{ target: string; pattern: RegExp }> = [
+    { target: "tensor width", pattern: /\b(?:dense[- ]layer|hidden|embedding|feature|tensor)?\s*(?:shape|width|dimension)\b/i },
+    { target: "layer count", pattern: /\b(?:depth|block|stack|layer(?:[- ]count)?)\b/i },
+    { target: "optimizer steps", pattern: /\b(?:iteration|iterations|epoch|epochs|training steps?|update steps?|optim(?:ization|isation)(?: duration| steps?| iterations?)?)\b/i },
+    { target: "dataset rows", pattern: /\b(?:examples?|records?|samples?|rows?|dataset size)\b/i },
+  ];
+  const canonical = aliases.find((alias) => alias.pattern.test(normalized))?.target;
+  return [normalized, canonical].filter((value): value is string => Boolean(value)).some((candidate) => allowedDimensions.some((allowed) => candidate.includes(allowed.toLowerCase()) || allowed.toLowerCase().includes(candidate)));
+}
+
+export function compactSymbolImplemented(symbol: string, executableText: string): boolean {
+  const normalized = symbol.trim();
+  if (!normalized) return false;
+  if (executableText.includes(normalized)) return true;
+  const parts = normalized.split(".").filter(Boolean);
+  if (parts.length < 2) return false;
+  return parts.every((part) => {
+    const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`).test(executableText);
+  });
 }
 
 function paperNotebookPrompt(
@@ -4381,10 +4623,11 @@ Requirements:
 - Code cells are claim-isolating probes, not metadata or provenance audits. Do not print URLs, commit hashes, source fingerprints, readiness flags, or term frequencies. Implement a named baseline and the paper-specific mechanism, compare a measured value, and include a one-variable controlled ablation. Assertions must check a mathematical invariant, numerical equivalence, shape contract, gradient or parameter behavior, or the predicted direction of a comparison; never use a trivial constant assertion.
 - The implemented comparison baseline must have at least one literal Python identifier containing "baseline" such as baseline_model, baseline_output, or baseline_final_loss. A baseline mentioned only in Markdown, architecture metadata, or a comment does not satisfy the executable contract.
 - When the architecture contains trainable parameters and a loss, a single forward pass or backward-only gradient check is insufficient. Include a compact end-to-end training lifecycle on a deterministic bounded dataset: construct the paper-specific trainable module, keep the stated frozen parameters frozen, run 20-200 real optimizer steps with zero_grad, backward, and step, retain training_loss_history, set initial_train_loss and final_train_loss, and assert final_train_loss < initial_train_loss. Then run a separate no-grad or eval inference path and retain inference_output. If the paper supports merged or compiled deployment, also retain merged_inference_output and assert its numerical equivalence to the unmerged learned mechanism. Save a small training-curve figure and a JSON metrics file so the run produces useful artifacts. Clearly label this as a miniature task rather than the paper benchmark.
+- For every such trainable PyTorch lesson, include this literal lifecycle shape in a code cell (using paper-specific module and tensor names): \`optimizer = torch.optim.AdamW(trainable_parameters, lr=...)\`, \`training_loss_history = []\`, \`for optimizer_step in range(...)\`, \`optimizer.zero_grad()\`, \`loss.backward()\`, \`optimizer.step()\`, then \`initial_train_loss\`, \`final_train_loss\`, and a \`with torch.no_grad():\` block that assigns \`inference_output\`. Do not call \`eval(\`, \`exec(\`, \`compile(\`, \`__import__(\`, \`subprocess\`, \`requests\`, \`socket\`, or a package installer anywhere in a generated code cell.
 - When repository evidence is available, the trainable module must reproduce the semantics of the cited pinned implementation symbols, including parameter freezing, initialization, scaling, forward behavior, and merge behavior that are material to the paper. Name the exact source mapping in the adjacent explanation. Do not substitute print statements or shape-only tensors for training and inference.
 - Treat hardwareAdaptation as an execution contract, not descriptive metadata. Use executionTarget for the first isolated validation, remain below every compactification ceiling, and keep code portable to executionCandidates whose status is ready. A detected local accelerator with runtime-required is not usable until its reviewed runtime exists; a ready Modal target uses CUDA through CODEX_RESEARCH_DEVICE.
 - Compact the pinned repository by changing scale-only dimensions such as dataset rows, batch size, sequence length, tensor width, layer count, and optimizer steps. Do not change anything listed in forbiddenSemanticChanges. In the first Demo boundary, name the original repository paths or symbols retained, every scale dimension reduced, the chosen values, and why the reduction still tests the selected invariant.
-- Use the dataset mode and row limit in hardwareAdaptation.dataset. If it is synthetic-proxy or inspect, use deterministic synthetic data and explicitly state that dataset preprocessing and paper metrics were not reproduced. Never download a dataset from a generated cell.
+- Use the dataset mode and row limit in hardwareAdaptation.dataset. When hardwareAdaptation.dataset.localPath is present, load newline-delimited JSON only from os.environ["ROSETTA_DATASET_PATH"] and remain within recommendedRows; the runner mounts that user-approved artifact read-only. If the mode is synthetic-proxy or inspect, use deterministic synthetic data and explicitly state that dataset preprocessing and paper metrics were not reproduced. Never download a dataset from a generated cell.
 - Use at most ${adaptationPlan.compactification.startingBatchSize} examples per batch, ${adaptationPlan.compactification.maximumOptimizerSteps} optimizer steps, ${adaptationPlan.compactification.maximumTensorElements} elements in any deliberately allocated learning tensor, and ${adaptationPlan.compactification.maximumTrainableParameters} trainable parameters. These are conservative demo ceilings, not claims about the original experiment.
 - Markdown must build on the guide rather than repeat it, teach why each structure is necessary, include precise equations where supported, state a prediction before its checking cell, and cite the extracted PDF page number for paper claims. Write explanations as a coherent textbook-like lesson rather than disconnected labels. Use only $...$ for inline math and $$...$$ for display math; never use \\(...\\) or \\[...\\] delimiters.
 - Render every paper citation as [specific natural-language evidence label](/evidence/pdf?page=PAGE&quote=URL_ENCODED_EXACT_QUOTE), using an exact 8-30 word excerpt from that page. Never use "PDF p. N" as visible citation text.
@@ -4514,7 +4757,14 @@ async function parseGeneratedLesson(answer: string, study: StudyInspection, adap
   if (!lesson.probes.some((probe) => probe.role === "mechanism" && mechanismFlowCellIds.has(probe.cellId))) throw new ApiError("The mechanism probe is not linked to the executable mechanism flow", 502);
   const learningContextGaps = codeLearningContextGaps(lesson.cells, lesson.probes);
   if (learningContextGaps.length > 0) throw new ApiError(`Generated notebook is missing code-adjacent learning context: ${learningContextGaps.join(", ")}`, 502);
-  const adaptationGaps = resourceAdaptationGaps(lesson.cells, adaptationPlan);
+  // The selected-data reader is a server-owned execution contract. It is
+  // appended to the notebook after validation so model quality is judged on
+  // the paper mechanism while dataset integrity remains deterministic.
+  const datasetContract = selectedDatasetContractSource(adaptationPlan);
+  const adaptationGaps = resourceAdaptationGaps(
+    datasetContract ? [...lesson.cells, { id: "dataset-contract", kind: "code", source: datasetContract }] : lesson.cells,
+    adaptationPlan,
+  );
   if (adaptationGaps.length > 0) throw new ApiError(`Generated notebook does not satisfy the measured hardware adaptation plan: ${adaptationGaps.join(", ")}`, 502);
   const guideEvidence = [
     ...lesson.guide.thesis.evidence.map((evidence) => ({ evidence, context: `${lesson.guide.thesis.summary} ${lesson.guide.thesis.significance}` })),
@@ -4575,8 +4825,9 @@ async function parseGeneratedLesson(answer: string, study: StudyInspection, adap
   const allowedImports = new Set([...PYTHON_STDLIB_IMPORTS, "matplotlib", "numpy", "torch"]);
   for (const cell of lesson.cells.filter((candidate) => candidate.kind === "code")) {
     if (!/^\s*assert\b/m.test(cell.source)) throw new ApiError(`Generated code cell ${cell.id} has no executable assertion`, 502);
-    if (/(?:^|[^\w.])(?:eval|exec|compile|__import__)\s*\(|\b(?:os\.system|subprocess|socket|requests|urllib|http\.client)\b|\b(?:pip|conda)\s+/m.test(cell.source)) {
-      throw new ApiError(`Generated code cell ${cell.id} violates the isolated execution contract`, 502);
+    const unsafeToken = cell.source.match(/(?:^|[^\w.])(?:eval|exec|compile|__import__)\s*\(|\b(?:os\.system|subprocess|socket|requests|urllib|http\.client)\b|\b(?:pip|conda)\s+/m)?.[0]?.trim();
+    if (unsafeToken) {
+      throw new ApiError(`Generated code cell ${cell.id} violates the isolated execution contract: ${compactText(unsafeToken, 80)}`, 502);
     }
     const imports = [...cell.source.matchAll(/^\s*(?:from|import)\s+([A-Za-z_][\w.]*)/gm)].map((match) => match[1].split(".")[0]);
     const unsupported = imports.filter((name) => !allowedImports.has(name));
@@ -4611,10 +4862,14 @@ async function parseGeneratedLesson(answer: string, study: StudyInspection, adap
       if (!symbolParts.some((part) => source.symbols.includes(part)) && !source.content.includes(mapping.symbol)) {
         throw new ApiError(`Adaptation mapping cites an unpinned symbol in ${mapping.path}: ${mapping.symbol}`, 502);
       }
-      if (!executableText.includes(mapping.compactSymbol)) throw new ApiError(`Adaptation mapping compact symbol is absent from executable code: ${mapping.compactSymbol}`, 502);
+      const compactSymbols = mapping.compactSymbol
+        .split(/\s*(?:,|;|\band\b)\s*/i)
+        .map((symbol) => symbol.trim())
+        .filter(Boolean);
+      const absentCompactSymbols = compactSymbols.filter((symbol) => !compactSymbolImplemented(symbol, executableText));
+      if (absentCompactSymbols.length > 0) throw new ApiError(`Adaptation mapping compact symbol is absent from executable code: ${absentCompactSymbols.join(", ")}`, 502);
       for (const change of mapping.scaleChanges) {
-        const normalized = change.dimension.toLowerCase();
-        if (!adaptationPlan.compactification.scaleOnlyDimensions.some((dimension) => normalized.includes(dimension) || dimension.includes(normalized))) {
+        if (!isAllowedCompactScaleDimension(change.dimension, adaptationPlan.compactification.scaleOnlyDimensions)) {
           throw new ApiError(`Adaptation mapping changes a non-approved scale dimension: ${change.dimension}`, 502);
         }
       }
@@ -4911,6 +5166,62 @@ function hardwareAdaptationCell(plan: HardwareAdaptationPlan): NotebookInput["ce
   };
 }
 
+function selectedDatasetContractCells(plan: HardwareAdaptationPlan): NotebookInput["cells"] {
+  const source = selectedDatasetContractSource(plan);
+  if (!source) return [];
+  const rows = plan.dataset.recommendedRows?.toLocaleString("en-US") || "bounded";
+  const datasetName = plan.dataset.hubId || "the selected dataset";
+  return [{
+    id: "dataset-contract-context",
+    kind: "markdown",
+    source: `# Selected dataset contract
+
+## Learning objective
+
+Verify that this lesson reads the learner-approved local data artifact before interpreting any compact experiment.
+
+## Paper-to-code map
+
+The dataset agent selected **${datasetName}** at its pinned revision. The runner exposes only its read-only JSONL sample through \`ROSETTA_DATASET_PATH\`; \`dataset_records\` is the bounded executable representation.
+
+## Prediction
+
+The mounted file and its manifest will agree on one SHA-256 digest, and the compact reader will retain no more than ${rows} rows.
+
+## Demo boundary
+
+This checks intake identity and bounded access, not the original paper's complete preprocessing, split semantics, or benchmark distribution. The mechanism cells below state separately how their compact tensors relate to this selected evidence.`,
+    executionCount: null,
+    runStatus: "idle",
+  }, {
+    id: "dataset-contract",
+    kind: "code",
+    source,
+    executionCount: null,
+    runStatus: "idle",
+  }, {
+    id: "dataset-contract-reading",
+    kind: "markdown",
+    source: `## How to read the result
+
+\`rowsLoaded\` is the exact bounded subset visible to this run. The digest must match both the pinned manifest and the data file before it can be treated as study evidence.
+
+## What this establishes
+
+The selected public dataset was downloaded locally, read from the isolated read-only mount, and attached to this notebook's execution lineage.
+
+## What this does not establish
+
+It does not recreate the paper's full dataset pipeline or claim that a compact sample reproduces reported benchmark numbers.
+
+## Takeaway
+
+Treat the dataset as a versioned input contract: selection, revision, bytes, row bound, and mount are all inspectable before model behavior is discussed.`,
+    executionCount: null,
+    runStatus: "idle",
+  }];
+}
+
 function repositoryAdaptationCell(adaptation: z.infer<typeof GeneratedLessonSchema>["adaptation"]): NotebookInput["cells"][number] | null {
   if (adaptation.sourceMappings.length === 0) return null;
   const mappings = adaptation.sourceMappings.map((mapping) => {
@@ -4933,13 +5244,14 @@ function buildGeneratedNotebook(study: StudyInspection, lesson: z.infer<typeof G
   const createdAt = new Date().toISOString();
   const adaptationHash = hash(JSON.stringify(adaptationPlan));
   const sourceAdaptation = repositoryAdaptationCell(lesson.adaptation);
+  const datasetContract = selectedDatasetContractCells(adaptationPlan);
   return {
     id: serverNotebookId(study),
     title: lesson.title,
     paperUrl: study.paper?.url || "",
     repositoryUrl: study.repository?.url || "",
     image: DEFAULT_IMAGE,
-    cells: [paperGuideCell(lesson.guide), hardwareAdaptationCell(adaptationPlan), ...(sourceAdaptation ? [sourceAdaptation] : []), architectureOverviewCell(lesson.architecture), architectureDiagramCell(lesson.architecture), architectureComponentsCell(lesson.architecture), ...lesson.cells.map((cell) => ({ ...cell, source: cell.kind === "markdown" ? normalizeLatexDelimiters(cell.source) : cell.source, executionCount: null, runStatus: "idle" as const }))],
+    cells: [paperGuideCell(lesson.guide), hardwareAdaptationCell(adaptationPlan), ...datasetContract, ...(sourceAdaptation ? [sourceAdaptation] : []), architectureOverviewCell(lesson.architecture), architectureDiagramCell(lesson.architecture), architectureComponentsCell(lesson.architecture), ...lesson.cells.map((cell) => ({ ...cell, source: cell.kind === "markdown" ? normalizeLatexDelimiters(cell.source) : cell.source, executionCount: null, runStatus: "idle" as const }))],
     comments: [],
     provenance: [{
       id: `generated-${randomUUID()}`,
@@ -5428,12 +5740,20 @@ ${excerpts}`;
 async function parseDatasetDraft(answer: string, study: StudyInspection): Promise<z.infer<typeof DatasetDraftSchema>> {
   try {
     const draft = parseInput(DatasetDraftSchema, JSON.parse(answer));
+    if (!study.paperDocument?.textPath) throw new ApiError("Dataset evidence requires pinned paper text", 422);
+    const absolutePath = resolve(process.cwd(), study.paperDocument.textPath);
+    const dataRelativePath = relative(DATA_ROOT, absolutePath);
+    if (dataRelativePath.startsWith("..") || resolve(DATA_ROOT, dataRelativePath) !== absolutePath) throw new ApiError("Pinned paper text path escaped the data root", 500);
+    const extracted = parseInput(ExtractedPagesSchema, JSON.parse(await readFile(absolutePath, "utf8")));
+    if (study.paperDocument.pagesSha256 && hash(JSON.stringify(extracted)) !== study.paperDocument.pagesSha256) throw new ApiError("Pinned paper text hash no longer matches the intake", 409);
     for (const dataset of draft.paperDatasets) {
       for (const evidence of dataset.evidence) {
-        const wordCount = evidence.quote.split(/\s+/).filter(Boolean).length;
+        const grounded = groundEvidenceQuoteForClaim(extracted.pages, evidence.page, evidence.quote, `${dataset.name} ${dataset.role} ${dataset.split} ${dataset.preprocessing}`);
+        if (!grounded) throw new ApiError(`Dataset quote could not be grounded near PDF page ${evidence.page}`, 502);
+        const wordCount = grounded.quote.split(/\s+/).filter(Boolean).length;
         if (wordCount < 8 || wordCount > 30) throw new ApiError("Dataset evidence quotes must contain 8-30 words", 502);
-        const page = await readStudyPaperPage(study.studyId, String(evidence.page));
-        if (!normalizedEvidence(page.text).includes(normalizedEvidence(evidence.quote))) throw new ApiError(`Dataset quote was not found verbatim on PDF page ${evidence.page}`, 502);
+        evidence.page = grounded.page;
+        evidence.quote = grounded.quote;
       }
     }
     return draft;
@@ -5508,24 +5828,33 @@ export function resourceFitRecommendation(size: { originalBytes: number | null; 
   const diskBudget = Math.max(0, Math.floor(budget.freeDiskBytes * 0.2));
   if (memoryBudget < 64 * 1024 ** 2 || diskBudget < 64 * 1024 ** 2) return { mode: "inspect", recommendedRows: null, rationale: "The machine does not have a safe 25% RAM and 20% disk working budget." } as const;
   const diskRequirement = size.originalBytes || size.memoryBytes;
-  if (size.memoryBytes <= memoryBudget && diskRequirement <= diskBudget) {
+  if (size.memoryBytes <= memoryBudget && diskRequirement <= diskBudget && size.rows <= MAX_LOCAL_DATASET_ROWS) {
     return { mode: "full", recommendedRows: size.rows, rationale: "Reported in-memory and source sizes fit within 25% of free RAM and 20% of free disk." } as const;
   }
   const bytesPerRow = size.memoryBytes / size.rows;
   const diskBytesPerRow = diskRequirement / size.rows;
-  const recommendedRows = Math.min(size.rows, Math.floor(memoryBudget / Math.max(1, bytesPerRow)), Math.floor(diskBudget / Math.max(1, diskBytesPerRow)));
+  const recommendedRows = Math.min(size.rows, MAX_LOCAL_DATASET_ROWS, Math.floor(memoryBudget / Math.max(1, bytesPerRow)), Math.floor(diskBudget / Math.max(1, diskBytesPerRow)));
   if (recommendedRows < 1) return { mode: "inspect", recommendedRows: null, rationale: "Even one estimated row does not fit the safe local memory and disk budget." } as const;
-  const streamingPossible = Boolean(size.parquetBytes && size.parquetBytes <= diskBudget);
-  return { mode: streamingPossible ? "streaming" : "subset", recommendedRows, rationale: streamingPossible ? "The full in-memory dataset does not fit; use the registry Parquet representation with bounded streaming." : "The full dataset exceeds the local working budget; use a deterministic hash-ordered subset." } as const;
+  return { mode: "subset", recommendedRows, rationale: size.rows > MAX_LOCAL_DATASET_ROWS
+    ? `Use at most ${MAX_LOCAL_DATASET_ROWS.toLocaleString("en-US")} registry rows for the compact learning demo; the full benchmark remains out of scope.`
+    : "The full dataset exceeds the local working budget; use a bounded registry subset." } as const;
 }
 
-const DATASET_PLAN_LIMITATIONS = "Hub metadata verifies that a registry entry exists and records its revision, access state, license tag, and viewer-reported size where available. Canonical-name similarity is only a candidate match; it does not prove dataset identity or equivalence to the paper's original preprocessing.";
+const DATASET_PLAN_LIMITATIONS = "Hub metadata verifies that a registry entry exists and records its revision, access state, license tag, and viewer-reported size where available. Canonical-name similarity is only a candidate match; it does not prove dataset identity or equivalence to the paper's original preprocessing. A selected local subset is a contiguous viewer sample for learning, not a statistically representative benchmark sample.";
+
+function normalizedDatasetSelection(value: unknown): Record<string, unknown> | null {
+  const selection = asRecord(value);
+  if (!selection || selection.status !== "ready" || typeof selection.hubId !== "string" || typeof selection.localPath !== "string"
+    || typeof selection.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(selection.sha256)
+    || typeof selection.rowCount !== "number" || !Number.isInteger(selection.rowCount) || selection.rowCount < 1) return null;
+  return selection;
+}
 
 export function normalizeStoredDatasetPlan(value: unknown): Record<string, unknown> {
   const plan = asRecord(value);
   if (!plan) throw new ApiError("Stored dataset plan is not a JSON object", 500);
   const rawCandidates = Array.isArray(plan.candidates) ? plan.candidates : [];
-  let migrated = plan.schemaVersion !== "1.1" || !Array.isArray(plan.candidates);
+  let migrated = plan.schemaVersion !== "1.2" || !Array.isArray(plan.candidates);
   const candidates = rawCandidates.flatMap((value) => {
     const candidate = asRecord(value);
     if (!candidate) {
@@ -5573,7 +5902,7 @@ export function normalizeStoredDatasetPlan(value: unknown): Record<string, unkno
   const hardware = asRecord(plan.hardware);
   return {
     ...plan,
-    schemaVersion: "1.1",
+    schemaVersion: "1.2",
     hardware: {
       freeMemoryBytes: typeof hardware?.freeMemoryBytes === "number" ? hardware.freeMemoryBytes : 0,
       freeDiskBytes: typeof hardware?.freeDiskBytes === "number" ? hardware.freeDiskBytes : 0,
@@ -5582,6 +5911,7 @@ export function normalizeStoredDatasetPlan(value: unknown): Record<string, unkno
       arch: typeof hardware?.arch === "string" ? hardware.arch : "unknown",
     },
     candidates,
+    selection: normalizedDatasetSelection(plan.selection),
     stale: Boolean(plan.stale) || migrated,
     migrationNotes: migrated ? ["This plan predates exact PDF evidence and canonical-name scoring. Refresh it before downloading or reproducing a result."] : [],
     limitations: DATASET_PLAN_LIMITATIONS,
@@ -5616,16 +5946,17 @@ async function generateDatasetPlan(study: StudyInspection, studyDir: string, reg
       hub,
       verification: hub ? "registry-name-match" as const : "not-found" as const,
       fit,
-      subsetContract: fit.recommendedRows ? { method: "sha256-row-key-order", seed: 17, rows: fit.recommendedRows, split: paperDataset.split, registryRevision: hub?.revision || null } : null,
+      subsetContract: fit.recommendedRows ? { method: "dataset-viewer-contiguous-prefix-v1", offset: 0, rows: fit.recommendedRows, split: paperDataset.split, registryRevision: hub?.revision || null } : null,
     });
   }
   const plan = {
-    schemaVersion: "1.1",
+    schemaVersion: "1.2",
     studyId: study.studyId,
     paperSha256: study.paperDocument.sha256,
     createdAt: new Date().toISOString(),
     hardware: { ...budget, logicalCores: cpus().length, platform: platform(), arch: arch() },
     candidates,
+    selection: null,
     connectors: workflow.invocation,
     modelRun: response.run,
     stale: false,
@@ -5648,6 +5979,153 @@ async function generateDatasetPlan(study: StudyInspection, studyDir: string, reg
     promptHash: response.run.promptHash,
   })}\n`, "utf8");
   return { plan, cached: false, agentVersion: response.status.version, modelRun: response.run };
+}
+
+export function chooseDatasetPartition(
+  files: Array<{ config: string; split: string; url?: string }>,
+  requestedSplit: string,
+): { config: string; split: string } | null {
+  if (files.length === 0) return null;
+  const requested = requestedSplit.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const partitions = [...new Map(files.map((file) => [`${file.config}\0${file.split}`, { config: file.config, split: file.split }])).values()];
+  const splitScore = (split: string) => {
+    const normalized = split.toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (requested && !requested.includes("not specified") && normalized === requested) return 50;
+    if (normalized === "train" && /\btrain(?:ing)?\b/.test(requested)) return 40;
+    if (normalized.includes("validation") && /\bvalidation\b/.test(requested)) return 36;
+    if (normalized === "test" && /\btest\b/.test(requested)) return 34;
+    if (requested && !requested.includes("not specified") && (requested.includes(normalized) || normalized.includes(requested))) return 30;
+    if (normalized === "train") return 20;
+    if (normalized.includes("validation")) return 10;
+    return 0;
+  };
+  return partitions.sort((left, right) => {
+    const configDifference = (right.config === "default" ? 5 : 0) - (left.config === "default" ? 5 : 0);
+    return splitScore(right.split) - splitScore(left.split) || configDifference || left.config.localeCompare(right.config) || left.split.localeCompare(right.split);
+  })[0];
+}
+
+async function currentHubDatasetRevision(hubId: string): Promise<string> {
+  const encodedId = hubId.split("/").map(encodeURIComponent).join("/");
+  const metadata = asRecord(await fetchJson<unknown>(`https://huggingface.co/api/datasets/${encodedId}`, {}, HUGGING_FACE_API_HOSTS));
+  if (!metadata || metadata.private === true || typeof metadata.sha !== "string" || !metadata.sha) throw new ApiError("The selected Hub dataset no longer exposes a public immutable revision", 409);
+  return metadata.sha;
+}
+
+export async function downloadDatasetViewerRows(hubId: string, config: string, split: string, maximumRows: number) {
+  const lines: string[] = [];
+  let bytes = 0;
+  let offset = 0;
+  let truncatedCellCount = 0;
+  while (offset < maximumRows && bytes < MAX_LOCAL_DATASET_BYTES) {
+    let length = Math.min(100, maximumRows - offset);
+    let response: Record<string, unknown> | null = null;
+    while (length >= 1) {
+      const rowsUrl = new URL("https://datasets-server.huggingface.co/rows");
+      rowsUrl.searchParams.set("dataset", hubId);
+      rowsUrl.searchParams.set("config", config);
+      rowsUrl.searchParams.set("split", split);
+      rowsUrl.searchParams.set("offset", String(offset));
+      rowsUrl.searchParams.set("length", String(length));
+      try {
+        response = asRecord(await fetchJson<unknown>(rowsUrl.toString(), {}, HUGGING_FACE_DATASET_SERVER_HOSTS));
+        break;
+      } catch (error) {
+        if (!(error instanceof ApiError) || !/too large/i.test(error.message) || length === 1) throw error;
+        length = Math.max(1, Math.floor(length / 2));
+      }
+    }
+    const rows = Array.isArray(response?.rows) ? response.rows : [];
+    if (rows.length === 0) break;
+    let retained = 0;
+    for (const item of rows) {
+      const record = asRecord(item);
+      if (!record || !("row" in record)) continue;
+      if (Array.isArray(record.truncated_cells)) truncatedCellCount += record.truncated_cells.length;
+      const line = `${JSON.stringify({ rowIndex: typeof record.row_idx === "number" ? record.row_idx : offset + retained, row: record.row })}\n`;
+      const lineBytes = Buffer.byteLength(line);
+      if (bytes + lineBytes > MAX_LOCAL_DATASET_BYTES) break;
+      lines.push(line);
+      bytes += lineBytes;
+      retained += 1;
+    }
+    offset += rows.length;
+    if (retained === 0 || rows.length < length || lines.length >= maximumRows) break;
+  }
+  if (lines.length === 0) throw new ApiError("The selected dataset viewer returned no downloadable rows", 422);
+  return { content: lines.join(""), rowCount: lines.length, sizeBytes: bytes, truncatedCellCount };
+}
+
+async function selectDatasetCandidate(study: StudyInspection, studyDir: string, hubId: string) {
+  const planPath = join(studyDir, "dataset-plan.json");
+  let plan: Record<string, unknown>;
+  try { plan = normalizeStoredDatasetPlan(JSON.parse(await readFile(planPath, "utf8"))); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new ApiError("Find dataset candidates before selecting one", 409);
+    throw error;
+  }
+  if (plan.stale) throw new ApiError("Refresh this legacy dataset plan before downloading a candidate", 409);
+  if (plan.paperSha256 !== study.paperDocument?.sha256) throw new ApiError("The dataset plan does not match the pinned paper", 409);
+  const candidates = Array.isArray(plan.candidates) ? plan.candidates.map(asRecord).filter(Boolean) as Record<string, unknown>[] : [];
+  const candidate = candidates.find((item) => asRecord(item.hub)?.id === hubId);
+  const hub = asRecord(candidate?.hub);
+  const fit = asRecord(candidate?.fit);
+  if (!candidate || !hub || hub.id !== hubId) throw new ApiError("Select a verified candidate from the current dataset plan", 422);
+  if (hub.gated && hub.gated !== false) throw new ApiError("This Hub dataset requires access approval and cannot be downloaded automatically", 422);
+  if (hub.license === "unknown") throw new ApiError("Review the dataset license before downloading this candidate", 422);
+  if (!fit || !["full", "subset", "streaming"].includes(String(fit.mode)) || typeof fit.recommendedRows !== "number" || fit.recommendedRows < 1) {
+    throw new ApiError("This dataset does not have a safe local download budget", 422);
+  }
+
+  const plannedRevision = typeof hub.revision === "string" ? hub.revision : null;
+  const revision = await currentHubDatasetRevision(hubId);
+  if (plannedRevision && plannedRevision !== revision) throw new ApiError("The Hub dataset changed after planning. Refresh candidates before downloading it", 409);
+  const parquetUrl = new URL("https://datasets-server.huggingface.co/parquet");
+  parquetUrl.searchParams.set("dataset", hubId);
+  const parquet = parseInput(HubDatasetParquetSchema, await fetchJson<unknown>(parquetUrl.toString(), {}, HUGGING_FACE_DATASET_SERVER_HOSTS));
+  const partition = chooseDatasetPartition(parquet.parquet_files, typeof candidate.split === "string" ? candidate.split : "train");
+  if (!partition) throw new ApiError("The selected dataset has no viewer-backed split that Rosetta can download", 422);
+  const requestedRows = Math.min(MAX_LOCAL_DATASET_ROWS, Math.floor(fit.recommendedRows));
+  const downloaded = await downloadDatasetViewerRows(hubId, partition.config, partition.split, requestedRows);
+  const finalRevision = await currentHubDatasetRevision(hubId);
+  if (finalRevision !== revision) throw new ApiError("The Hub dataset changed during download. Nothing was attached; try again", 409);
+
+  const storageKey = hash(`${hubId}\0${revision}\0${partition.config}\0${partition.split}`).slice(0, 20);
+  const datasetDir = join(DATASETS_ROOT, study.studyId, storageKey);
+  const dataPath = join(datasetDir, "data.jsonl");
+  await mkdir(datasetDir, { recursive: true });
+  await writeFile(dataPath, downloaded.content, "utf8");
+  const createdAt = new Date().toISOString();
+  const selection = {
+    status: "ready",
+    hubId,
+    revision,
+    config: partition.config,
+    split: partition.split,
+    mode: downloaded.rowCount === Number(asRecord(hub.size)?.rows) ? "full" : "subset",
+    rowCount: downloaded.rowCount,
+    requestedRows,
+    sizeBytes: downloaded.sizeBytes,
+    sha256: hash(downloaded.content),
+    localPath: relative(DATA_ROOT, dataPath),
+    mountPath: "/dataset/data.jsonl",
+    createdAt,
+    subsetContract: { method: "dataset-viewer-contiguous-prefix-v1", offset: 0, rows: downloaded.rowCount },
+    source: `https://huggingface.co/datasets/${hubId}`,
+    truncatedCellCount: downloaded.truncatedCellCount,
+    limitations: "This bounded local viewer sample supports the learning demo. It does not reproduce the paper's full data pipeline, shuffle, preprocessing, or benchmark distribution.",
+  };
+  await atomicJson(join(datasetDir, "selection.json"), selection);
+  const updatedPlan = { ...plan, selection };
+  await atomicJson(planPath, updatedPlan);
+  await appendFile(join(studyDir, "provenance.jsonl"), `${JSON.stringify({
+    id: randomUUID(), type: "dataset.attached", actor: "user", createdAt,
+    summary: `Attached ${downloaded.rowCount} rows from ${hubId} for isolated notebook execution`,
+    paperSha256: study.paperDocument?.sha256,
+    datasetRevision: revision,
+    datasetSha256: selection.sha256,
+  })}\n`, "utf8");
+  return { plan: updatedPlan, selection };
 }
 
 type ModalCredentialSource = "environment" | "session" | "app-profile" | "profile";
@@ -5886,10 +6364,22 @@ export function selectModalGpu(notebook: Pick<NotebookInput, "cells">, requested
   };
 }
 
-function renderModalApp(notebook: NotebookInput, gpu: ModalGpu, timeoutSeconds: number, packages: string[]): string {
+function renderModalApp(
+  notebook: NotebookInput,
+  gpu: ModalGpu,
+  timeoutSeconds: number,
+  packages: string[],
+  datasetMount: { directory: string; selection: Record<string, unknown> } | null,
+): string {
   const cells = notebook.cells.filter((cell) => cell.kind === "code").map((cell) => ({ id: cell.id, source: cell.source }));
   const encodedCells = JSON.stringify(JSON.stringify(cells));
   const pipInstall = packages.length > 0 ? `.pip_install(${packages.map((value) => JSON.stringify(value)).join(", ")})` : "";
+  const datasetFiles = datasetMount
+    ? `.add_local_file(${JSON.stringify(join(datasetMount.directory, "data.jsonl"))}, remote_path="/rosetta-data/data.jsonl", copy=True).add_local_file(${JSON.stringify(join(datasetMount.directory, "selection.json"))}, remote_path="/rosetta-data/selection.json", copy=True)`
+    : "";
+  const imageEnvironment = datasetMount
+    ? `{"CODEX_RESEARCH_DEVICE": "cuda", "ROSETTA_DATASET_PATH": "/rosetta-data/data.jsonl", "ROSETTA_DATASET_MANIFEST": "/rosetta-data/selection.json"}`
+    : `{"CODEX_RESEARCH_DEVICE": "cuda"}`;
   return `import base64
 import contextlib
 import hashlib
@@ -5906,7 +6396,7 @@ import modal
 
 CELLS = json.loads(${encodedCells})
 app = modal.App(${JSON.stringify(`rosetta-${notebook.id}`)})
-image = modal.Image.debian_slim(python_version="3.12")${pipInstall}.env({"CODEX_RESEARCH_DEVICE": "cuda"})
+image = modal.Image.debian_slim(python_version="3.12")${pipInstall}${datasetFiles}.env(${imageEnvironment})
 
 @app.function(image=image, gpu=${JSON.stringify(gpu)}, timeout=${timeoutSeconds}, memory=8192, restrict_modal_access=True, block_network=True, single_use_containers=True)
 def execute_notebook():
@@ -5991,6 +6481,7 @@ async function createModalPlan(notebookId: string, requestedGpu: ModalGpuRequest
     else throw new ApiError("Run every code cell locally first, document why local execution is blocked, or explicitly request the connected remote runtime", 422);
   }
   const packages = modalPackagesForNotebook(record.notebook);
+  const datasetMount = await datasetMountForNotebook(safeId(notebookId));
   const gpuSelection = selectModalGpu(record.notebook, requestedGpu);
   const gpu = gpuSelection.gpu;
   const planId = `modal-${timestampId()}-${randomUUID().slice(0, 8)}`;
@@ -5999,7 +6490,7 @@ async function createModalPlan(notebookId: string, requestedGpu: ModalGpuRequest
   const approvalToken = `${randomUUID()}${randomUUID()}`;
   const createdAt = new Date();
   const appPath = join(planDir, "modal_app.py");
-  const appSource = renderModalApp(record.notebook, gpu, timeoutSeconds, packages);
+  const appSource = renderModalApp(record.notebook, gpu, timeoutSeconds, packages, datasetMount);
   await writeFile(appPath, appSource, "utf8");
   const planCore = {
     schemaVersion: "1.0",
@@ -6026,6 +6517,14 @@ async function createModalPlan(notebookId: string, requestedGpu: ModalGpuRequest
     containerMemoryMiB: 8192,
     networkPolicy: "blocked" as const,
     artifactPolicy: { maxFiles: 20, maxFileBytes: 1024 * 1024, maxTotalBytes: 2 * 1024 * 1024 },
+    dataset: datasetMount ? {
+      hubId: datasetMount.selection.hubId,
+      revision: datasetMount.selection.revision,
+      rowCount: datasetMount.selection.rowCount,
+      sha256: datasetMount.selection.sha256,
+      remotePath: "/rosetta-data/data.jsonl",
+      readOnlyImageLayer: true,
+    } : null,
     localEvidence,
     codeCellCount: codeCells.length,
     status: "planned" as const,
@@ -6570,6 +7069,23 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boo
     }
     const generated = await withWriteLock(`datasets:${studyId}`, () => generateDatasetPlan(study, studyDir, regenerate));
     sendJson(res, generated.cached ? 200 : 201, generated);
+    return true;
+  }
+
+  const datasetSelectMatch = url.pathname.match(/^\/api\/studies\/([^/]+)\/datasets\/select$/);
+  if (req.method === "POST" && datasetSelectMatch) {
+    assertLoopbackRequest(req);
+    const studyId = safeId(datasetSelectMatch[1]);
+    const { hubId } = parseInput(SelectDatasetBodySchema, await readJsonBody(req));
+    const studyDir = join(STUDIES_ROOT, studyId);
+    let study: StudyInspection;
+    try {
+      study = JSON.parse(await readFile(join(studyDir, "intake.json"), "utf8")) as StudyInspection;
+    } catch {
+      throw new ApiError("Study was not found", 404);
+    }
+    const selected = await withWriteLock(`datasets:${studyId}`, () => selectDatasetCandidate(study, studyDir, hubId));
+    sendJson(res, 201, selected);
     return true;
   }
 

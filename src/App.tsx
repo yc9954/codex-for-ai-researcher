@@ -155,8 +155,25 @@ interface DatasetPlan {
       size: null | { originalBytes: number | null; parquetBytes: number | null; memoryBytes: number | null; rows: number | null };
     };
     fit: { mode: "full" | "subset" | "streaming" | "inspect"; recommendedRows: number | null; rationale: string };
-    subsetContract: null | { method: string; seed: number; rows: number; split: string; registryRevision: string | null };
+    subsetContract: null | { method: string; offset?: number; seed?: number; rows: number; split: string; registryRevision: string | null };
   }>;
+  selection: null | {
+    status: "ready";
+    hubId: string;
+    revision: string;
+    config: string;
+    split: string;
+    mode: "full" | "subset";
+    rowCount: number;
+    requestedRows: number;
+    sizeBytes: number;
+    sha256: string;
+    localPath: string;
+    mountPath: string;
+    createdAt: string;
+    truncatedCellCount: number;
+    limitations: string;
+  };
   limitations: string;
 }
 
@@ -1199,6 +1216,8 @@ function DatasetView({ study, profile, onNewStudy, onOpenEvidence }: { study: St
   const [plan, setPlan] = useState<DatasetPlan | null>(null);
   const [loading, setLoading] = useState(Boolean(study));
   const [generating, setGenerating] = useState(false);
+  const [selectedHubId, setSelectedHubId] = useState("");
+  const [downloading, setDownloading] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -1212,7 +1231,7 @@ function DatasetView({ study, profile, onNewStudy, onOpenEvidence }: { study: St
         if (!response.ok) throw new Error(body && "error" in body ? body.error || "Dataset plan could not be loaded" : "Dataset plan could not be loaded");
         return body as DatasetPlan | null;
       })
-      .then((stored) => { if (active) { setPlan(stored); setLoadError(""); } })
+      .then((stored) => { if (active) { setPlan(stored); setSelectedHubId(stored?.selection?.hubId || ""); setLoadError(""); } })
       .catch((cause: unknown) => { if (active) setLoadError(cause instanceof Error ? cause.message : String(cause)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -1237,11 +1256,32 @@ function DatasetView({ study, profile, onNewStudy, onOpenEvidence }: { study: St
       const body = await response.json() as { plan?: DatasetPlan; error?: string };
       if (!response.ok || !body.plan) throw new Error(body.error || "Dataset planning failed");
       setPlan(body.plan);
+      setSelectedHubId(body.plan.selection?.hubId || "");
       setLoadError("");
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function downloadSelected() {
+    if (!study || !selectedHubId || downloading) return;
+    setDownloading(true);
+    setActionError("");
+    try {
+      const response = await fetch(`/api/studies/${encodeURIComponent(study.studyId)}/datasets/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hubId: selectedHubId }),
+      });
+      const body = await response.json() as { plan?: DatasetPlan; error?: string };
+      if (!response.ok || !body.plan) throw new Error(body.error || "Dataset download failed");
+      setPlan(body.plan);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -1254,17 +1294,25 @@ function DatasetView({ study, profile, onNewStudy, onOpenEvidence }: { study: St
       {loading ? <section className="execution-empty"><LoaderCircle className="spin" size={22} /><h2>Loading dataset evidence</h2></section> : loadError && !plan ? <section className="execution-empty"><AlertCircle size={22} /><h2>Dataset evidence unavailable</h2><p>{loadError}. No saved plan was replaced.</p><button type="button" className="quiet-button" onClick={retryDatasetLoad}><RefreshCw size={14} /> Retry</button></section> : !plan ? <section className="execution-empty"><Database size={22} /><h2>No dataset plan has run</h2><p>{canGenerate ? "Extract paper dataset mentions and verify current Hub metadata against this machine." : "A signed-in local Codex agent and extracted PDF text are required."}</p><button type="button" className="primary-command" onClick={() => void generate(false)} disabled={!canGenerate || generating}>{generating ? <LoaderCircle className="spin" size={15} /> : <Database size={15} />} Find datasets</button></section> : <>
         {plan.stale && <div className="source-warning" role="status"><AlertCircle size={15} /><span>{plan.migrationNotes?.[0] || "This saved dataset plan uses an older evidence format. Refresh it before using a candidate."}</span></div>}
         <div className="dataset-budget"><span><HardDrive size={16} /><strong>{formatBytes(plan.hardware.freeDiskBytes)}</strong><small>free disk at planning</small></span><span><Cpu size={16} /><strong>{formatBytes(plan.hardware.freeMemoryBytes)}</strong><small>available memory at planning</small></span><code title={plan.paperSha256}>paper {plan.paperSha256.slice(0, 12)}</code></div>
+        {plan.selection && <section className="dataset-selection-summary" aria-label="Attached local dataset">
+          <CheckCircle2 size={18} />
+          <div><strong>{plan.selection.hubId}</strong><p>{plan.selection.config} / {plan.selection.split} · {plan.selection.rowCount.toLocaleString()} rows · {formatBytes(plan.selection.sizeBytes)}</p><code title={plan.selection.sha256}>{plan.selection.localPath} · sha256:{plan.selection.sha256.slice(0, 12)}</code></div>
+          <span>Mounted read-only at {plan.selection.mountPath}</span>
+        </section>}
         <section className="dataset-table" aria-label="Verified dataset candidates">
-          <div className="dataset-table-header"><span>Paper evidence and Hub identity</span><span>Verified size</span><span>Local mode</span></div>
+          <div className="dataset-table-header"><span>Paper evidence and Hub identity</span><span>Verified size</span><span>Local mode</span><span>Select</span></div>
           {plan.candidates.map((candidate) => {
             const evidence = candidate.evidence?.[0];
             const identityLabel = candidate.hub?.identityScore == null ? "legacy match not rescored" : `${Math.round(candidate.hub.identityScore * 100)}% name match`;
+            const selectable = Boolean(!plan.stale && candidate.hub && !candidate.hub.gated && candidate.hub.license !== "unknown" && candidate.fit.recommendedRows);
             return <article key={`${candidate.name}-${candidate.searchQuery}`}>
             <div className="dataset-name"><i><Database size={12} /></i><span><strong>{candidate.name}</strong>{evidence && <button type="button" className="dataset-evidence-link" onClick={() => onOpenEvidence({ page: evidence.page, quote: evidence.quote, label: `${candidate.name} dataset role` })}>{evidence.quote.slice(0, 96)}{evidence.quote.length > 96 ? "..." : ""}</button>}<p>{candidate.role}</p><small>Split: {candidate.split || "Not specified"} · preprocessing: {candidate.preprocessing || "Not specified"}</small>{candidate.hub ? <a href={candidate.hub.url} target="_blank" rel="noreferrer">{candidate.hub.id} · {identityLabel} <ExternalLink size={12} /></a> : <small>No sufficiently close public Hub name match</small>}</span></div>
             <div className="dataset-metric"><strong>{candidate.hub?.size?.memoryBytes ? formatBytes(candidate.hub.size.memoryBytes) : "Unknown"}</strong><small>{candidate.hub?.size?.rows?.toLocaleString() || "Unknown"} rows · license {candidate.hub?.license || "unverified"}</small><code title={candidate.hub?.revision || undefined}>{candidate.hub?.revision?.slice(0, 10) || "no revision"}</code></div>
-            <div className="dataset-fit"><strong>{candidate.fit?.mode || "inspect"}</strong><small>{candidate.fit?.recommendedRows ? `${candidate.fit.recommendedRows.toLocaleString()} rows${candidate.subsetContract?.seed == null ? "" : ` · seed ${candidate.subsetContract.seed}`}` : "Inspect first"}</small></div>
+            <div className="dataset-fit"><strong>{candidate.fit?.mode || "inspect"}</strong><small>{candidate.fit?.recommendedRows ? `${candidate.fit.recommendedRows.toLocaleString()} rows · bounded local sample` : "Inspect first"}</small></div>
+            <label className={`dataset-select-control${selectedHubId === candidate.hub?.id ? " is-selected" : ""}`}><input type="radio" name="dataset-candidate" value={candidate.hub?.id || ""} checked={Boolean(candidate.hub?.id && selectedHubId === candidate.hub.id)} disabled={!selectable || downloading} onChange={() => setSelectedHubId(candidate.hub?.id || "")} /><span>{plan.selection?.hubId === candidate.hub?.id ? "Attached" : selectable ? "Choose" : "Unavailable"}</span></label>
           </article>})}
         </section>
+        <div className="dataset-download-bar"><div><strong>Local learning sample</strong><p>The selected revision is downloaded as bounded JSONL, hashed, and mounted read-only when this notebook runs.</p></div><button type="button" className="primary-command" disabled={!selectedHubId || plan.stale || downloading} onClick={() => void downloadSelected()}>{downloading ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />} {downloading ? "Downloading" : "Download selected"}</button></div>
         <p className="dataset-limit">{plan.limitations}</p>
       </>}
       {actionError && <div className="source-warning" role="alert"><AlertCircle size={15} />{actionError}</div>}
