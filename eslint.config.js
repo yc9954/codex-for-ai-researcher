@@ -5,7 +5,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "dist-electron/**", "release/**", "artifacts/**", ".paperlab/**", ".venv*/**", "node_modules/**", "skills/**/__pycache__/**"] },
+  { ignores: ["dist/**", "dist-electron/**", "release/**", "artifacts/**", ".rosetta/**", ".venv*/**", "node_modules/**", "skills/**/__pycache__/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

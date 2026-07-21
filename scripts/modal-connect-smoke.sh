@@ -4,7 +4,7 @@ set +x
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_ID="modal-smoke-$(date -u +%Y%m%d%H%M%S)"
-DATA_ROOT="${MODAL_SMOKE_DATA_ROOT:-$ROOT_DIR/.paperlab/$RUN_ID}"
+DATA_ROOT="${MODAL_SMOKE_DATA_ROOT:-$ROOT_DIR/.rosetta/$RUN_ID}"
 LOG_PATH="$DATA_ROOT/server.log"
 SERVER_PID=""
 BASE_URL="${MODAL_SMOKE_BASE_URL:-}"
@@ -62,7 +62,7 @@ PY
   BASE_URL="http://127.0.0.1:$PORT"
   (
     cd "$ROOT_DIR"
-    CODEX_LAB_AGENT_ENABLED=0 CODEX_LAB_DATA_ROOT="$DATA_ROOT" npm run dev -- --port "$PORT" --strictPort >"$LOG_PATH" 2>&1
+    ROSETTA_AGENT_ENABLED=0 ROSETTA_DATA_ROOT="$DATA_ROOT" npm run dev -- --port "$PORT" --strictPort >"$LOG_PATH" 2>&1
   ) &
   SERVER_PID=$!
   for _ in $(seq 1 60); do
@@ -106,7 +106,7 @@ notebook = {
     "title": "Modal connectivity smoke",
     "paperUrl": "",
     "repositoryUrl": "",
-    "image": "codex-lab-python:0.1",
+    "image": "rosetta-python:0.1",
     "cells": [{
         "id": "modal-tensor-smoke",
         "kind": "code",

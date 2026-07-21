@@ -36,7 +36,7 @@ test("production preview serves the application within the interaction budget", 
   const initialBytes = initialAssets.reduce((total, asset) => total + asset.bytes, 0);
   expect(response?.status()).toBe(200);
   expect(response?.headers()["content-security-policy"]).toContain("script-src 'self'; style-src");
-  await expect(page).toHaveTitle("Codex for AI researcher");
+  await expect(page).toHaveTitle("Rosetta");
   await expect(page.locator("link[rel='icon']")).toHaveAttribute("href", "/brand-logo.png");
   await expect(page.getByRole("complementary", { name: "Research navigation" }).getByRole("button", { name: "New study" })).toBeVisible();
   expect(initialBytes).toBeLessThanOrEqual(800_000);

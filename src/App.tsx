@@ -212,7 +212,7 @@ const skillCatalog: SkillCommand[] = [
   { name: "package-research-provenance", label: "Package evidence", detail: "Freezes sources, cell hashes, run manifests, and notebook versions." },
   { name: "orchestrate-paper-demo", label: "Orchestrate study", detail: "Coordinates the complete paper-to-concept-demo workflow." },
 ];
-const PRODUCT_NAME = "Codex for AI researcher";
+const PRODUCT_NAME = "Rosetta";
 
 function IconButton({ label, children, onClick, className = "", pressed }: {
   label: string;
@@ -290,7 +290,7 @@ export default function App() {
   const [connectorsLoading, setConnectorsLoading] = useState(true);
   const [connectorError, setConnectorError] = useState("");
   const [connectorRevision, setConnectorRevision] = useState(0);
-  const [desktopSetupOpen, setDesktopSetupOpen] = useState(() => Boolean(window.codexDesktop) && localStorage.getItem("codex-researcher.desktop-onboarding.v1") !== "complete");
+  const [desktopSetupOpen, setDesktopSetupOpen] = useState(() => Boolean(window.rosettaDesktop) && localStorage.getItem("rosetta.desktop-onboarding.v1") !== "complete");
   const [evidenceTarget, setEvidenceTarget] = useState<EvidenceCitation | null>(null);
   const [activeAnnotation, setActiveAnnotation] = useState<NotebookAnnotation | null>(null);
   const [artifactPaneOpen, setArtifactPaneOpen] = useState(false);
@@ -301,7 +301,7 @@ export default function App() {
   const effectiveSelectedAgentId = selectedAgentId && connectorConfig?.agents.some((agent) => agent.id === selectedAgentId && agent.enabled) ? selectedAgentId : null;
 
   function completeDesktopSetup() {
-    localStorage.setItem("codex-researcher.desktop-onboarding.v1", "complete");
+    localStorage.setItem("rosetta.desktop-onboarding.v1", "complete");
     setDesktopSetupOpen(false);
   }
 
@@ -642,7 +642,7 @@ export default function App() {
 
         <div className="sidebar-bottom">
           <NavItem label="Connectors" icon={Cable} active={view === "connectors"} collapsed={sidebarCollapsed} onClick={() => selectView("connectors")} />
-          {window.codexDesktop && <NavItem label="Setup" icon={Settings2} collapsed={sidebarCollapsed} onClick={() => setDesktopSetupOpen(true)} />}
+          {window.rosettaDesktop && <NavItem label="Setup" icon={Settings2} collapsed={sidebarCollapsed} onClick={() => setDesktopSetupOpen(true)} />}
           {!sidebarCollapsed && (
             <div className="orchestrator-status">
               <Server size={16} />
@@ -843,8 +843,8 @@ function AgentView({ study, profile, loading, error, messages, messagesLoading, 
     <div className="chat-view">
       <div className="study-empty-state">
         {error ? <AlertCircle size={22} /> : <FileText size={22} />}
-        <h1>{error || "Start with a paper and repository"}</h1>
-        <p>Source metadata and repository state are fetched, pinned, and stored locally before any analysis is shown.</p>
+        <h1>{error || "Decode a paper by running it"}</h1>
+        <p>Pin a paper and its repository, then learn each idea through evidence-linked experiments adapted to this computer.</p>
         <div className="empty-state-actions">
           {error && <button type="button" className="quiet-button" onClick={onRetry}><RefreshCw size={15} /> Retry loading</button>}
           <button type="button" className="primary-command" onClick={onNewStudy}><Plus size={15} /> New study</button>
@@ -1511,7 +1511,7 @@ function ExecutionView({ study, profile, notebookAvailable, onOpenNotebook }: { 
         <div><Cpu size={18} /><span><strong>{profile?.cpu || "Detecting processor"}</strong><small>{profile ? `${profile.logicalCores} logical cores · ${formatPlatform(profile)}` : "System profile unavailable"}</small></span></div>
         <div><HardDrive size={18} /><span><strong>{profile ? formatBytes(profile.memoryBytes) : "Unknown memory"}</strong><small>{profile ? `${formatBytes(profile.freeMemoryBytes)} available at inspection` : "System profile unavailable"}</small></span></div>
         <div><CircuitBoard size={18} /><span><strong>{profile ? formatAccelerator(profile) : "Detecting accelerator"}</strong><small>{profile?.accelerators.some((accelerator) => accelerator.localRunnerAccess) ? "Available inside a reviewed local runner" : profile?.accelerators.length ? "Detected on host · target-specific isolated runtime required" : "Portable CPU validation available"}</small></span></div>
-        <div><PackageCheck size={18} /><span><strong>{profile?.runnerImageReady ? "Portable runner ready" : profile?.dockerReady ? "Runner image not built" : "Docker not connected"}</strong><small>{profile ? `${profile.localRuntime.cpus} CPU · ${formatBytes(profile.localRuntime.memoryBytes)} · ${profile.localRuntime.timeoutSeconds} s · ${profile.runnerPlatform ? `${profile.runnerPlatform.os}/${profile.runnerPlatform.arch}` : profile.runnerImage}` : "codex-lab-python:0.1"}</small></span></div>
+        <div><PackageCheck size={18} /><span><strong>{profile?.runnerImageReady ? "Portable runner ready" : profile?.dockerReady ? "Runner image not built" : "Docker not connected"}</strong><small>{profile ? `${profile.localRuntime.cpus} CPU · ${formatBytes(profile.localRuntime.memoryBytes)} · ${profile.localRuntime.timeoutSeconds} s · ${profile.runnerPlatform ? `${profile.runnerPlatform.os}/${profile.runnerPlatform.arch}` : profile.runnerImage}` : "rosetta-python:0.1"}</small></span></div>
       </div>
       {error && retainedCount > 0 && <div className="source-warning run-load-warning" role="alert"><AlertCircle size={15} /><span>{error}. Available run manifests remain visible.</span><button type="button" onClick={retryRuns} disabled={loading}>{loading ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} Retry</button></div>}
       {loading && retainedCount === 0 ? <section className="execution-empty"><LoaderCircle className="spin" size={22} /><h2>Loading run manifests</h2></section> : error && retainedCount === 0 ? (

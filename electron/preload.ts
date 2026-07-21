@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-contextBridge.exposeInMainWorld("codexDesktop", {
+contextBridge.exposeInMainWorld("rosettaDesktop", {
   getInfo: () => ipcRenderer.invoke("desktop:get-info"),
   signInCodex: () => ipcRenderer.invoke("desktop:codex-login"),
   buildRunner: () => ipcRenderer.invoke("desktop:build-runner"),

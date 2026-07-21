@@ -1,25 +1,37 @@
 <p align="center">
-  <img src="public/brand-logo.png" width="88" alt="Codex for AI researcher logo" />
+  <img src="public/brand-logo.png" width="88" alt="Rosetta logo" />
 </p>
 
-<h1 align="center">Codex for AI researcher</h1>
+<h1 align="center">Rosetta</h1>
 
 <p align="center">
-  Turn a machine-learning paper and its GitHub repository into an evidence-linked, hardware-aware, executable learning notebook.
+  <strong>Decode papers. Adapt experiments. Learn by running them anywhere.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/yc9954/codex-for-ai-researcher/actions/workflows/quality.yml"><img alt="Quality harness" src="https://github.com/yc9954/codex-for-ai-researcher/actions/workflows/quality.yml/badge.svg" /></a>
+  Turn a machine-learning paper and its repository into an evidence-linked lesson with experiments sized for your hardware.
+</p>
+
+<p align="center">
+  <a href="https://github.com/yc9954/rosetta/actions/workflows/quality.yml"><img alt="Quality harness" src="https://github.com/yc9954/rosetta/actions/workflows/quality.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-white.svg" /></a>
   <img alt="Electron" src="https://img.shields.io/badge/Electron-desktop-2f2f2f" />
   <img alt="GPT-5.6 routed" src="https://img.shields.io/badge/GPT--5.6-routed-2f2f2f" />
 </p>
 
 <p align="center">
-  <img src="docs/assets/learning-notebook.png" alt="A LoRA learning notebook with an executable training probe and retained figures" width="100%" />
+  <a href="https://github.com/yc9954/rosetta/archive/refs/heads/main.zip"><strong>Download source</strong></a>
+  · <a href="#install-and-run">Setup</a>
+  · <a href="#try-the-lora-sample">LoRA sample</a>
 </p>
 
-Codex for AI researcher is a local-first research workbench. It does not claim that a laptop-sized demonstration reproduces a paper's full benchmark. It separates four things that research tools often blur together:
+<p align="center">
+  <img src="docs/assets/rosetta-tour.gif" alt="Rosetta product tour showing cited PDF evidence, an executable learning notebook, retained results, and GPT-5.6 routing" width="100%" />
+</p>
+
+<p align="center"><sub>From a cited claim to its PDF evidence, executable lesson, retained results, and model route.</sub></p>
+
+Rosetta is a local-first learning workbench for AI engineers. It reads a paper and its pinned implementation, identifies the ideas a learner must understand, and turns those ideas into small experiments that can run on the learner's computer or an approved Modal GPU. It does not claim that a laptop-sized demonstration reproduces a paper's full benchmark. Instead, it keeps four kinds of evidence separate:
 
 1. what the paper reports;
 2. what the pinned repository implements;
@@ -37,6 +49,21 @@ The result is a compact notebook designed to teach the paper's thesis, definitio
 - **Executes with back-pressure.** Runs cumulative cells in a network-disabled, read-only Docker environment and gives real stderr to a narrowly scoped repair pass.
 - **Uses remote compute deliberately.** Creates a Modal plan, chooses the smallest compatible allowlisted GPU, shows the maximum GPU-only cost, and requires one-time approval before launch.
 - **Keeps provenance.** Retains source hashes, model route, reasoning effort, prompt hash, notebook versions, code hash, image digest, run lineage, outputs, figures, annotations, and deviations.
+
+## How Rosetta teaches a paper
+
+Each notebook follows a deliberate learning sequence rather than presenting a summary followed by unrelated code:
+
+1. **Orient.** State the paper's central question, thesis, prerequisites, and paper-defined terms in the order needed to read the method.
+2. **Trace.** Connect each important equation and architectural component to the exact PDF passage and pinned repository symbol that implements it.
+3. **Predict.** Ask what should happen before execution, including expected invariants, failure modes, and values that should change or remain frozen.
+4. **Run.** Execute the smallest experiment that preserves the mechanism, loss, optimization path, inference behavior, and meaningful comparison.
+5. **Interpret.** Place observations beside the code and figures, separating what the run establishes from what the original paper reports.
+6. **Transfer.** Finish with a mental model, appropriate use cases, limitations, and a scale-up checklist for moving toward the reported experiment.
+
+<p align="center">
+  <img src="docs/assets/learning-notebook.png" alt="A Rosetta LoRA lesson showing the original architecture beside retained training figures and data files" width="100%" />
+</p>
 
 <table>
   <tr>
@@ -75,8 +102,8 @@ Expected output is a concept reproduction, not the paper's full GPT-3/RoBERTa be
 | Python 3 + Modal token | Approved remote GPU execution | Optional |
 
 ```bash
-git clone https://github.com/yc9954/codex-for-ai-researcher.git
-cd codex-for-ai-researcher
+git clone https://github.com/yc9954/rosetta.git
+cd rosetta
 npm ci
 npm run dev
 ```
@@ -109,7 +136,7 @@ The Electron bundle includes the application runtime; end users do not need Node
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
   A[Paper URL / PDF] --> B[Source intake]
   C[GitHub repository] --> B
   B --> D[(Pinned evidence store)]
@@ -165,9 +192,9 @@ This follows OpenAI's [GPT-5.6 model guidance](https://developers.openai.com/api
 Every call records the actual model, family, workload, effort, policy version, duration, Codex CLI version, authentication mode, and prompt SHA-256. Model aliases can be pinned without code changes:
 
 ```bash
-export CODEX_LAB_MODEL_SOL=gpt-5.6-sol
-export CODEX_LAB_MODEL_TERRA=gpt-5.6-terra
-export CODEX_LAB_MODEL_LUNA=gpt-5.6-luna
+export ROSETTA_MODEL_SOL=gpt-5.6-sol
+export ROSETTA_MODEL_TERRA=gpt-5.6-terra
+export ROSETTA_MODEL_LUNA=gpt-5.6-luna
 ```
 
 The configured ChatGPT or API account must have access to those models. No credential is committed to this repository.
@@ -182,7 +209,7 @@ Codex was used both to build the product and as the product's local research run
 - Converted repeated review feedback into repository-wide contracts for PDF rendering, math normalization, source citations, annotation positioning, dataset navigation, Modal cancellation, and artifact retention.
 - Implemented and repeatedly ran a back-pressure loop: ESLint, TypeScript, unit contracts, production build, Electron smoke, preview budget, desktop/mobile Playwright, and Docker execution.
 - Diagnosed the packaged Electron-only `remark-parse` interop failure, fixed the CommonJS boundary, and strengthened the desktop smoke to perform a real LoRA paper/repository intake.
-- Used screenshots as verification evidence while keeping only the three representative public images in this repository.
+- Used screenshots and a short product tour as verification evidence while keeping only representative public media in this repository.
 
 ### Inside the product
 
@@ -230,7 +257,7 @@ npm run quality:loop -- --profile=full --max=2
 npm run test:agent-live
 ```
 
-The harness stops at the first failing stage and writes a machine-readable report under `.paperlab/harness/`. Playwright audits desktop and mobile navigation, overflow, accessible names, dialogs, failure recovery, source highlighting, KaTeX, generated figures, syntax editing, annotations, artifacts, and remote approval.
+The harness stops at the first failing stage and writes a machine-readable report under `.rosetta/harness/`. Playwright audits desktop and mobile navigation, overflow, accessible names, dialogs, failure recovery, source highlighting, KaTeX, generated figures, syntax editing, annotations, artifacts, and remote approval.
 
 ## Project layout
 

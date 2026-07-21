@@ -14,7 +14,7 @@ export default defineConfig({
     command: "npm run dev -- --port 4275 --strictPort",
     url: "http://127.0.0.1:4275",
     reuseExistingServer: false,
-    env: { CODEX_LAB_DATA_ROOT: ".paperlab/e2e", CODEX_LAB_AGENT_ENABLED: "0" },
+    env: { ROSETTA_DATA_ROOT: ".rosetta/e2e", ROSETTA_AGENT_ENABLED: "0" },
   },
   projects: [
     {

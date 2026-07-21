@@ -69,7 +69,7 @@ test("primary workspace views remain reachable, bounded, and free of runtime err
     title: "LoRA navigation audit notebook",
     paperUrl: study.paper.url,
     repositoryUrl: study.repository?.url || "",
-    image: "codex-lab-python:0.1",
+    image: "rosetta-python:0.1",
     cells: [
       { id: "mechanism", kind: "markdown", source: "# LoRA mechanism\n\nThe frozen projection and trainable low-rank residual remain inspectable as separate paths.", executionCount: null, runStatus: "idle" },
       { id: "merge-check", kind: "code", source: "import numpy as np\nW0 = np.eye(2)\nA = np.ones((1, 2))\nB = np.ones((2, 1))\nx = np.array([1., 2.])\nassert np.allclose(W0 @ x + B @ (A @ x), (W0 + B @ A) @ x)", executionCount: null, runStatus: "idle" },

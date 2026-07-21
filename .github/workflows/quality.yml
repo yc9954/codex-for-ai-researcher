@@ -26,6 +26,6 @@ jobs:
         with:
           name: quality-evidence
           path: |
-            .paperlab/harness
+            .rosetta/harness
             artifacts/test-results
           if-no-files-found: warn

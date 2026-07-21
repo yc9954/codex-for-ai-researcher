@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 const profile = process.argv.find((argument) => argument.startsWith("--profile="))?.split("=")[1] || "core";
 const requestedMax = Number(process.argv.find((argument) => argument.startsWith("--max="))?.split("=")[1] || "2");
 const maxAttempts = Number.isInteger(requestedMax) && requestedMax > 0 && requestedMax <= 5 ? requestedMax : 2;
-const outputDirectory = join(process.cwd(), ".paperlab", "harness");
+const outputDirectory = join(process.cwd(), ".rosetta", "harness");
 const loopId = `loop-${new Date().toISOString().replace(/[-:.TZ]/g, "")}`;
 const attempts = [];
 const transientStages = new Set(["doctor", "preview-smoke", "playwright", "runtime-build", "runtime-smoke"]);

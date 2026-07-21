@@ -8,8 +8,8 @@ import { execFile } from "node:child_process";
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 
 const execFileAsync = promisify(execFile);
-const PRODUCT_NAME = "Codex for AI researcher";
-const RUNNER_IMAGE = "codex-lab-python:0.1";
+const PRODUCT_NAME = "Rosetta";
+const RUNNER_IMAGE = "rosetta-python:0.1";
 const allowedExternalProtocols = new Set(["https:", "mailto:"]);
 
 interface DesktopApiModule {
@@ -35,7 +35,7 @@ function runtimeRoot(): string {
 }
 
 function dataRoot(): string {
-  return process.env.CODEX_LAB_DATA_ROOT || join(app.getPath("userData"), "workspace");
+  return process.env.ROSETTA_DATA_ROOT || join(app.getPath("userData"), "workspace");
 }
 
 async function restoreLoginShellPath(): Promise<void> {
@@ -251,7 +251,7 @@ async function runDesktopSmoke(origin: string): Promise<void> {
 
 let localServer: LocalServer | null = null;
 let mainWindow: BrowserWindow | null = null;
-const desktopSmoke = process.env.CODEX_LAB_DESKTOP_SMOKE === "1" || process.argv.includes("--desktop-smoke");
+const desktopSmoke = process.env.ROSETTA_DESKTOP_SMOKE === "1" || process.argv.includes("--desktop-smoke");
 
 function smokeTrace(stage: string): void {
   if (desktopSmoke) process.stderr.write(`[desktop-smoke] ${stage}\n`);
@@ -272,8 +272,8 @@ else {
     smokeTrace("path-ready");
     const root = runtimeRoot();
     process.chdir(root);
-    process.env.CODEX_LAB_APP_ROOT = root;
-    process.env.CODEX_LAB_DATA_ROOT = dataRoot();
+    process.env.ROSETTA_APP_ROOT = root;
+    process.env.ROSETTA_DATA_ROOT = dataRoot();
     mkdirSync(dataRoot(), { recursive: true });
     installIpcHandlers();
     smokeTrace("loading-server");

@@ -5,7 +5,7 @@ interface DesktopActionResult {
   message: string;
 }
 
-interface CodexDesktopBridge {
+interface RosettaDesktopBridge {
   getInfo(): Promise<{ appName: string; version: string; platform: string; dataPath: string }>;
   signInCodex(): Promise<DesktopActionResult>;
   buildRunner(): Promise<DesktopActionResult>;
@@ -13,5 +13,5 @@ interface CodexDesktopBridge {
 }
 
 interface Window {
-  codexDesktop?: CodexDesktopBridge;
+  rosettaDesktop?: RosettaDesktopBridge;
 }

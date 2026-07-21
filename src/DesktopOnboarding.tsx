@@ -55,7 +55,7 @@ export default function DesktopOnboarding({ profile, onProfileChange, onClose, o
 
   useEffect(() => {
     let active = true;
-    window.codexDesktop?.getInfo().then((value) => { if (active) setInfo(value); }).catch(() => undefined);
+    window.rosettaDesktop?.getInfo().then((value) => { if (active) setInfo(value); }).catch(() => undefined);
     fetch("/api/modal/status")
       .then(async (response) => {
         const body = await response.json() as ModalStatus & { error?: string };
@@ -67,11 +67,11 @@ export default function DesktopOnboarding({ profile, onProfileChange, onClose, o
   }, []);
 
   async function signInCodex(): Promise<void> {
-    if (!window.codexDesktop || busy) return;
+    if (!window.rosettaDesktop || busy) return;
     setBusy("codex");
     setError("");
     setNotice("A browser window may open to complete Codex sign-in.");
-    const result = await window.codexDesktop.signInCodex();
+    const result = await window.rosettaDesktop.signInCodex();
     if (result.ok) setNotice(result.message);
     else setError(result.message);
     setBusy(null);
@@ -79,11 +79,11 @@ export default function DesktopOnboarding({ profile, onProfileChange, onClose, o
   }
 
   async function prepareRunner(): Promise<void> {
-    if (!window.codexDesktop || busy) return;
+    if (!window.rosettaDesktop || busy) return;
     setBusy("runner");
     setError("");
     setNotice("Building the pinned local runner. This can take several minutes the first time.");
-    const result = await window.codexDesktop.buildRunner();
+    const result = await window.rosettaDesktop.buildRunner();
     if (result.ok) setNotice(result.message);
     else setError(result.message);
     setBusy(null);
@@ -91,9 +91,9 @@ export default function DesktopOnboarding({ profile, onProfileChange, onClose, o
   }
 
   async function showDataFolder(): Promise<void> {
-    if (!window.codexDesktop || busy) return;
+    if (!window.rosettaDesktop || busy) return;
     setBusy("folder");
-    const result = await window.codexDesktop.showDataFolder();
+    const result = await window.rosettaDesktop.showDataFolder();
     if (!result.ok) setError(result.message);
     setBusy(null);
   }

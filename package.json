@@ -1,9 +1,9 @@
 {
-  "name": "codex-lab",
+  "name": "rosetta",
   "private": true,
   "version": "0.1.0",
-  "description": "A local evidence-first paper-to-code research workbench.",
-  "author": "Codex for AI researcher contributors",
+  "description": "Decode ML papers into evidence-linked lessons and hardware-aware executable experiments.",
+  "author": "Rosetta contributors",
   "main": "dist-electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -29,12 +29,12 @@
     "verify": "node scripts/quality-harness.mjs --profile=core",
     "quality": "node scripts/quality-harness.mjs --profile=full",
     "quality:loop": "node scripts/quality-loop.mjs",
-    "runtime:build": "docker build -t codex-lab-python:0.1 runtime",
-    "runtime:smoke": "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --memory 2g --cpus 2 --tmpfs /tmp:rw,noexec,nosuid,size=128m codex-lab-python:0.1 python -c \"import torch; print(torch.__version__); print(torch.ones(2).sum().item())\""
+    "runtime:build": "docker build -t rosetta-python:0.1 runtime",
+    "runtime:smoke": "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --memory 2g --cpus 2 --tmpfs /tmp:rw,noexec,nosuid,size=128m rosetta-python:0.1 python -c \"import torch; print(torch.__version__); print(torch.ones(2).sum().item())\""
   },
   "build": {
-    "appId": "ai.codexresearcher.desktop",
-    "productName": "Codex for AI researcher",
+    "appId": "ai.yc9954.rosetta",
+    "productName": "Rosetta",
     "afterPack": "scripts/after-pack.mjs",
     "asar": true,
     "npmRebuild": false,

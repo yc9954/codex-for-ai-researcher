@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ResearchNotebook } from "../src/notebook-types";
 
-function notebook(id: string, title = "Concurrency baseline", image = "codex-lab-python:0.1"): ResearchNotebook {
+function notebook(id: string, title = "Concurrency baseline", image = "rosetta-python:0.1"): ResearchNotebook {
   return {
     id,
     title,
@@ -74,6 +74,9 @@ test("API exposes hardened response headers and bounded schema failures", async 
     localRuntime: { backend: "cpu", cpus: expect.any(Number), memoryBytes: expect.any(Number), timeoutSeconds: 20, portable: true },
   });
   expect(system.localRuntime.memoryBytes).toBeGreaterThanOrEqual(768 * 1024 ** 2);
+  const runtimeStatus = await request.get("/api/runtime/status");
+  expect(runtimeStatus.status()).toBe(200);
+  await expect(runtimeStatus.json()).resolves.toMatchObject({ ready: expect.any(Boolean), runtime: "docker", image: "rosetta-python:0.1" });
   const latestStudy = await request.get("/api/studies/latest").then((response) => response.json());
   const activityId = `disabled-agent-${Date.now()}`;
   const disabledAgent = await request.post(`/api/studies/${latestStudy.studyId}/agent/respond`, { data: { content: "This must not execute in deterministic tests.", activityId } });
@@ -170,7 +173,7 @@ test("local PDF uploads enter the same hashed page-evidence pipeline", async ({ 
   test.skip(testInfo.project.name.includes("mobile"), "API contracts run once in the desktop project");
   const sourceUrl = "https://arxiv.org/pdf/2106.09685";
   const cacheKey = createHash("sha256").update(sourceUrl).digest("hex");
-  const source = await readFile(resolve(".paperlab/e2e/sources/papers", cacheKey, "source.pdf"));
+  const source = await readFile(resolve(".rosetta/e2e/sources/papers", cacheKey, "source.pdf"));
   const uploadResponse = await request.post("/api/papers/upload", {
     headers: { "Content-Type": "application/pdf", "X-Paper-Filename": encodeURIComponent("local-lora.pdf") },
     data: source,

@@ -163,7 +163,7 @@ function genericNotebook(study: StudyInspection): ResearchNotebook {
     title: `${title.slice(0, 72)} learning notebook`,
     paperUrl: study.paper?.url || "",
     repositoryUrl: study.repository?.url || "",
-    image: "codex-lab-python:0.1",
+    image: "rosetta-python:0.1",
     updatedAt: study.createdAt,
     cells: [{
       id: "notebook-pending",
@@ -255,7 +255,7 @@ function generationElapsed(startedAt: string | null): string {
 export default function NotebookStudio({ inspectorOpen, study, onOpenEvidence, onSendAnnotation, generationRequired = true, autoGenerate = false, embedded = false, onOpenFull, onClose }: NotebookStudioProps) {
   const [notebook, setNotebook] = useState<ResearchNotebook>(() => notebookForStudy(study));
   const [selectedCellId, setSelectedCellId] = useState("notebook-pending");
-  const [runtime, setRuntime] = useState<RuntimeStatus>({ ready: false, runtime: "docker", image: "codex-lab-python:0.1" });
+  const [runtime, setRuntime] = useState<RuntimeStatus>({ ready: false, runtime: "docker", image: "rosetta-python:0.1" });
   const [agentStatus, setAgentStatus] = useState<AgentStatus>({ ready: false });
   const [modalStatus, setModalStatus] = useState<ModalStatus | null>(null);
   const [modalDialogOpen, setModalDialogOpen] = useState(false);
@@ -298,7 +298,7 @@ export default function NotebookStudio({ inspectorOpen, study, onOpenEvidence, o
     fetch("/api/runtime/status")
       .then(async (response) => ({ response, body: await response.json() as RuntimeStatus }))
       .then(({ body }) => setRuntime(body))
-      .catch(() => setRuntime({ ready: false, runtime: "docker", image: "codex-lab-python:0.1", message: "Runner API is unavailable" }));
+      .catch(() => setRuntime({ ready: false, runtime: "docker", image: "rosetta-python:0.1", message: "Runner API is unavailable" }));
   }, []);
 
   useEffect(() => {
@@ -480,7 +480,7 @@ export default function NotebookStudio({ inspectorOpen, study, onOpenEvidence, o
         }),
       ]);
       if (runtimeResult.status === "fulfilled") setRuntime(runtimeResult.value);
-      else setRuntime({ ready: false, runtime: "docker", image: "codex-lab-python:0.1", message: runtimeResult.reason instanceof Error ? runtimeResult.reason.message : String(runtimeResult.reason) });
+      else setRuntime({ ready: false, runtime: "docker", image: "rosetta-python:0.1", message: runtimeResult.reason instanceof Error ? runtimeResult.reason.message : String(runtimeResult.reason) });
       if (agentResult.status === "fulfilled") setAgentStatus(agentResult.value);
       else setAgentStatus({ ready: false, message: agentResult.reason instanceof Error ? agentResult.reason.message : String(agentResult.reason) });
       setNotice(runtimeResult.status === "fulfilled" && runtimeResult.value.ready ? "Local runtime status refreshed" : "Local runtime is not ready");

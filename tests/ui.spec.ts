@@ -16,7 +16,7 @@ async function pinLora(request: APIRequestContext, options: { withNotebook?: boo
     title: "LoRA mechanism test notebook",
     paperUrl: study.paper.url,
     repositoryUrl: study.repository?.url || "",
-    image: "codex-lab-python:0.1",
+    image: "rosetta-python:0.1",
     cells: [
       { id: "source-overview", kind: "markdown", source: "# LoRA mechanism\n\nThe low-rank residual is added to the frozen projection and can be merged into one dense weight.", executionCount: null, runStatus: "idle" },
       { id: "source-pin", kind: "code", source: `import numpy as np\n\nW0 = np.arange(12, dtype=float).reshape(3, 4) / 10\nA = np.array([[1., 0., -1., 0.]])\nB = np.array([[1.], [0.5], [-1.]])\nx = np.array([1., 2., -1., 0.5])\nunmerged = W0 @ x + B @ (A @ x)\nmerged = (W0 + B @ A) @ x\nmerge_error = float(np.max(np.abs(unmerged - merged)))\nprint(f"merge_error={merge_error:.3g}")\nassert np.allclose(unmerged, merged)`, executionCount: null, runStatus: "idle" },
@@ -37,8 +37,8 @@ test("desktop renders pinned live evidence in the dark-only workbench", async ({
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "LoRA: Low-Rank Adaptation of Large Language Models" })).toBeVisible();
-  const productBrand = page.getByRole("button", { name: "Codex for AI researcher home" });
-  await expect(productBrand).toContainText("Codex for AI researcher");
+  const productBrand = page.getByRole("button", { name: "Rosetta home" });
+  await expect(productBrand).toContainText("Rosetta");
   await expect(productBrand.locator("img")).toHaveAttribute("src", "/brand-logo.png");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page.locator("body")).toHaveCSS("background-color", "rgb(0, 0, 0)");
@@ -48,7 +48,7 @@ test("desktop renders pinned live evidence in the dark-only workbench", async ({
 
   await page.getByRole("button", { name: "Collapse sidebar" }).click();
   await expect(page.getByRole("complementary", { name: "Research navigation" })).toHaveCSS("width", "52px");
-  await expect(page.getByRole("button", { name: "Codex for AI researcher home" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Rosetta home" })).toBeHidden();
   await page.getByRole("button", { name: "Expand sidebar" }).click();
 
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Source map" }).click();
@@ -65,7 +65,7 @@ test("desktop renders pinned live evidence in the dark-only workbench", async ({
   await expect(readme).toContainText("This repo contains the source code");
   await expect(readme).not.toContainText("<br>");
   await expect(readme).not.toContainText("# LoRA");
-  await page.screenshot({ path: "artifacts/codex-lab-live-source-map.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-live-source-map.png", fullPage: true });
 });
 
 test("paper guide uses a scannable hierarchy and embeds legacy evidence links in prose", async ({ page, request }, testInfo) => {
@@ -78,7 +78,7 @@ test("paper guide uses a scannable hierarchy and embeds legacy evidence links in
     title: "Scannable LoRA paper guide",
     paperUrl: study.paper.url,
     repositoryUrl: study.repository?.url || "",
-    image: "codex-lab-python:0.1",
+    image: "rosetta-python:0.1",
     cells: [{
       id: "paper-guide",
       kind: "markdown",
@@ -155,7 +155,7 @@ test("new study dialog performs a real URL inspection and records messages", asy
   await expect(page.getByText(/Recorded in study-.* provenance/)).toBeVisible({ timeout: 10_000 });
   await expect(page.locator(".chat-message.is-user").filter({ hasText: framingMarker })).toBeVisible();
   await expect.poll(() => chatScroll.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(4);
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-chat-autoscroll.png" });
+  await page.screenshot({ path: "artifacts/rosetta-chat-autoscroll.png" });
 });
 
 test("automatic agent routing streams verifiable activity and retains it with the answer", async ({ page, request }, testInfo) => {
@@ -291,7 +291,7 @@ test("notebook generation exposes real phases and can be cancelled", async ({ pa
   await expect(progress.locator(".generation-progress-copy strong")).toHaveText("Collecting evidence");
   phase = "smoke-testing";
   await expect(progress.locator(".generation-progress-copy strong")).toHaveText("Running isolated checks", { timeout: 3_000 });
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-generation-progress.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-generation-progress.png", fullPage: true });
   await progress.getByRole("button", { name: "Cancel" }).click();
   await expect(progress).toBeHidden();
   await expect(page.getByRole("status")).toContainText("cancelled");
@@ -320,7 +320,7 @@ test("notebook generation reconnects after reload and restores the completed not
       title: "Reconnected verified notebook",
       paperUrl: "https://arxiv.org/abs/2106.09685",
       repositoryUrl: "https://github.com/microsoft/LoRA",
-      image: "codex-lab-python:0.1",
+      image: "rosetta-python:0.1",
       cells: [{ id: "reconnected-cell", kind: "code", source: "print('reconnected')", executionCount: null, runStatus: "idle" }],
       comments: [], provenance: [{ id: "generated", type: "notebook.generated", actor: "agent", summary: "Restored completed notebook", createdAt: new Date().toISOString() }], updatedAt: new Date().toISOString(),
     } } });
@@ -345,7 +345,7 @@ test("paper-only studies skip repository adaptation and expose actionable next s
   await expect(workflow.locator(".workflow-row").filter({ hasText: "Adapt" })).toContainText("Skipped because no repository was attached");
   await expect(workflow.locator(".workflow-row").filter({ hasText: "Build" })).toContainText("A signed-in local Codex agent is required");
   await expect(workflow.getByRole("button", { name: "Open builder" })).toBeEnabled();
-  await page.screenshot({ path: "artifacts/codex-lab-workflow-actions.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-workflow-actions.png", fullPage: true });
   await workflow.getByRole("button", { name: "Plan" }).click();
   await expect(page.getByRole("heading", { name: "Resource-fit dataset evidence" })).toBeVisible();
 });
@@ -366,14 +366,14 @@ test("slash command menu filters project skills and inserts the selected command
   await expect(composer).toHaveAttribute("aria-expanded", "true");
   await expect(composer).toHaveAttribute("aria-controls", menuId!);
   await expect(composer).toHaveAttribute("aria-activedescendant", firstOptionId!);
-  await page.screenshot({ path: "artifacts/codex-lab-skill-menu.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-skill-menu.png", fullPage: true });
   await composer.press("ArrowDown");
   await composer.press("Enter");
   await expect(composer).toHaveValue("/explain-paper-mechanism ");
   const highlightedCommand = page.locator(".composer-skill-highlight.is-exact");
   await expect(highlightedCommand).toHaveText("/explain-paper-mechanism");
   await expect(highlightedCommand).toHaveCSS("color", "rgb(126, 182, 255)");
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-skill-highlight.png" });
+  await page.screenshot({ path: "artifacts/rosetta-skill-highlight.png" });
   await composer.fill("/dataset");
   await expect(menu.getByRole("option")).toHaveCount(1);
   await expect(menu).toContainText("/plan-resource-fit-dataset");
@@ -400,7 +400,7 @@ test("Connectors selects agents from the composer, invokes skills with slash, an
   await page.getByRole("dialog", { name: "New agent" }).getByRole("button", { name: "Create agent" }).click();
   const agentRow = page.getByRole("region", { name: "Custom agents" }).locator("article").filter({ hasText: "Architecture tutor" });
   await expect(agentRow).toContainText(command);
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-connectors.png" });
+  await page.screenshot({ path: "artifacts/rosetta-connectors.png" });
 
   await page.getByRole("button", { name: "Study", exact: true }).click();
   const composer = page.getByLabel("Message the research workspace");
@@ -409,7 +409,7 @@ test("Connectors selects agents from the composer, invokes skills with slash, an
   await agentTrigger.press("ArrowDown");
   const agentMenu = page.getByRole("listbox", { name: "Research agents" });
   await expect(agentMenu.getByRole("option").filter({ hasText: "Architecture tutor" })).toBeVisible();
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-agent-selector.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-agent-selector.png", fullPage: true });
   await expect(agentMenu.getByRole("option").first()).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(agentMenu.getByRole("option").filter({ hasText: "Architecture tutor" })).toBeFocused();
@@ -434,7 +434,7 @@ test("Connectors selects agents from the composer, invokes skills with slash, an
   await expect(hookRow).toContainText("Before figure generation");
   await hookRow.getByRole("checkbox").uncheck();
   await expect(hookRow.getByRole("checkbox")).not.toBeChecked();
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-hooks.png" });
+  await page.screenshot({ path: "artifacts/rosetta-hooks.png" });
   await page.getByRole("button", { name: "Delete Figure evidence gate" }).click();
   await page.getByRole("button", { name: "Delete", exact: true }).click();
 
@@ -802,7 +802,7 @@ test("new study dialog accepts a local PDF without a paper URL", async ({ page, 
   await pinLora(request);
   const sourceUrl = "https://arxiv.org/pdf/2106.09685";
   const cacheKey = createHash("sha256").update(sourceUrl).digest("hex");
-  const pdfPath = resolve(".paperlab/e2e/sources/papers", cacheKey, "source.pdf");
+  const pdfPath = resolve(".rosetta/e2e/sources/papers", cacheKey, "source.pdf");
   await page.goto("/");
   await page.getByRole("button", { name: "New study" }).click();
   await page.getByLabel("Paper PDF").setInputFiles(pdfPath);
@@ -871,7 +871,7 @@ test("remote view separates local planning from explicit external launch approva
     await authentication.getByLabel("Token ID").fill("ak-playwright-example");
     await authentication.getByLabel("Token Secret").fill("as-playwright-secret");
     await expect(authentication.getByRole("button", { name: "Connect Modal" })).toBeEnabled();
-    await page.screenshot({ path: "artifacts/codex-lab-modal-auth.png", fullPage: true });
+    await page.screenshot({ path: "artifacts/rosetta-modal-auth.png", fullPage: true });
   }
 
   const notebookId = `${studyId}-evidence-notebook`;
@@ -1035,7 +1035,7 @@ test("verified notebook produces a real isolated cell result when Docker is read
   await expect(codeEditor).toBeVisible();
   const highlightedColors = await page.locator(".python-code-editor .cm-content span").evaluateAll((spans) => [...new Set(spans.map((span) => getComputedStyle(span).color))]);
   expect(highlightedColors.length).toBeGreaterThan(2);
-  await page.locator(".notebook-code-cell").filter({ has: codeEditor }).screenshot({ path: "artifacts/codex-lab-syntax-editor.png" });
+  await page.locator(".notebook-code-cell").filter({ has: codeEditor }).screenshot({ path: "artifacts/rosetta-syntax-editor.png" });
   const outputRun = page.locator("[aria-label='source-pin output'] footer span").first();
   const previousRunId = await outputRun.count() ? await outputRun.textContent() : "";
   await page.getByRole("button", { name: "Run source-pin" }).click();
@@ -1052,7 +1052,7 @@ test("verified notebook produces a real isolated cell result when Docker is read
   await expect(page.locator(".run-result")).toHaveCount(0);
   await expect(page.locator(".frozen-bundle")).toContainText("artifact-");
   const artifactId = (await page.locator(".frozen-bundle > strong").textContent()) || "";
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-run-results.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-run-results.png", fullPage: true });
 
   await page.reload();
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Notebook" }).click();
@@ -1179,7 +1179,7 @@ test("notebook selections track scrolling and become notes or agent context", as
   await expect(page.getByLabel("Message the research workspace")).toHaveValue(agentNote);
   await expect(page.getByRole("complementary", { name: "Referenced notebook artifact" })).toBeVisible();
   await expect(page.locator(".artifact-side-pane .notebook-title")).toContainText("LoRA");
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-annotation-artifact-pane.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-annotation-artifact-pane.png", fullPage: true });
 
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.locator(".chat-message.is-user").filter({ hasText: agentNote }).locator(".chat-annotation-context")).toContainText("Selection");
@@ -1201,7 +1201,7 @@ test("paper math and generated figures render as notebook-native outputs", async
     id: notebookId,
     title: "Paper rendering contract",
     paperUrl: study.paper.url,
-    image: "codex-lab-python:0.1",
+    image: "rosetta-python:0.1",
     cells: [
       {
         id: "math-explanation",
@@ -1263,7 +1263,7 @@ print("verified_points=2")`,
   await figureAnnotation.getByRole("button", { name: "Annotate", exact: true }).click();
   const savedFigureAnnotation = page.locator(".notebook-annotation-notes").filter({ hasText: "Compare this rendered figure" });
   await expect(savedFigureAnnotation).toContainText("Figure · paper-figure");
-  await page.screenshot({ path: "artifacts/codex-lab-paper-figure.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-paper-figure.png", fullPage: true });
 });
 
 test("descriptive paper citations open and highlight the pinned PDF passage", async ({ page, request }, testInfo) => {
@@ -1273,7 +1273,7 @@ test("descriptive paper citations open and highlight the pinned PDF passage", as
   });
   const sourceUrl = "https://arxiv.org/pdf/2106.09685";
   const cacheKey = createHash("sha256").update(sourceUrl).digest("hex");
-  const source = await readFile(resolve(".paperlab/e2e/sources/papers", cacheKey, "source.pdf"));
+  const source = await readFile(resolve(".rosetta/e2e/sources/papers", cacheKey, "source.pdf"));
   const upload = await request.post("/api/papers/upload", {
     headers: { "Content-Type": "application/pdf", "X-Paper-Filename": encodeURIComponent("evidence-navigation.pdf") },
     data: source,
@@ -1297,7 +1297,7 @@ test("descriptive paper citations open and highlight the pinned PDF passage", as
     id: notebookId,
     title: "LoRA evidence navigation notebook",
     paperUrl: study.paper.url,
-    image: "codex-lab-python:0.1",
+    image: "rosetta-python:0.1",
     cells: [{
       id: "lora-evidence",
       kind: "markdown",
@@ -1353,7 +1353,7 @@ $$
   expect(sourcePixels.nonWhite).toBeGreaterThan(80);
   const cachedFigureSrc = await sourceImage.getAttribute("src");
   expect(cachedFigureSrc).toMatch(/^data:image\/png;base64,/);
-  await sourceFigure.screenshot({ path: "artifacts/codex-for-ai-researcher-original-paper-figure.png" });
+  await sourceFigure.screenshot({ path: "artifacts/rosetta-original-paper-figure.png" });
   await sourceFigure.getByRole("button", { name: "Open Figure 1 on PDF page 1" }).click();
   await expect(page.getByRole("region", { name: "Cited evidence on PDF page 1" })).toContainText("Figure 1");
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Notebook" }).click();
@@ -1393,7 +1393,7 @@ $$
   expect(canvasEvidence.width).toBeGreaterThan(600);
   expect(canvasEvidence.height).toBeGreaterThan(700);
   expect(canvasEvidence.nonWhite).toBeGreaterThan(100);
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-evidence-highlight.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-evidence-highlight.png", fullPage: true });
 });
 
 test("a wide original architecture figure is recovered from the pinned Transformer PDF", async ({ page, request }, testInfo) => {
@@ -1410,7 +1410,7 @@ test("a wide original architecture figure is recovered from the pinned Transform
     id: notebookId,
     title: "Transformer architecture source figure",
     paperUrl: study.paper.url,
-    image: "codex-lab-python:0.1",
+    image: "rosetta-python:0.1",
     cells: [{
       id: "architecture-overview",
       kind: "markdown",
@@ -1431,7 +1431,7 @@ test("a wide original architecture figure is recovered from the pinned Transform
   const dimensions = await sourceFigure.locator("img").evaluate((image: HTMLImageElement) => ({ width: image.naturalWidth, height: image.naturalHeight }));
   expect(dimensions.width).toBeGreaterThan(400);
   expect(dimensions.height).toBeGreaterThan(500);
-  await sourceFigure.screenshot({ path: "artifacts/codex-for-ai-researcher-transformer-original-architecture.png" });
+  await sourceFigure.screenshot({ path: "artifacts/rosetta-transformer-original-architecture.png" });
 });
 
 test("a paper without a generated lesson shows an honest notebook gate", async ({ page }, testInfo) => {
@@ -1474,7 +1474,7 @@ test("each study row selectively deletes its own conversation without changing t
 
   const dialog = page.getByRole("dialog", { name: "Delete this study?" });
   await expect(dialog).toContainText("messages, pinned study copy, dataset plan, notebook, runs, artifacts, and remote plans");
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-delete-study.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-delete-study.png", fullPage: true });
   await dialog.getByRole("button", { name: "Delete study" }).click();
   await expect(dialog).toBeHidden();
   await expect.poll(async () => (await request.get(`/api/studies/${study.studyId}/messages`)).status()).toBe(404);
@@ -1496,14 +1496,14 @@ test("mobile navigation remains usable without horizontal overflow", async ({ pa
   await expect.poll(() => sidebar.evaluate((element) => Math.round(element.getBoundingClientRect().x))).toBe(0);
   await expect.poll(() => sidebar.evaluate((element) => Math.round(element.getBoundingClientRect().width))).toBeGreaterThanOrEqual(300);
   await expect(page.getByRole("button", { name: "New study" })).toBeVisible();
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-mobile-navigation.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-mobile-navigation.png", fullPage: true });
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Source map" }).click();
   await expect(sidebar).not.toHaveClass(/is-mobile-open/);
   await page.waitForTimeout(250);
   await expect(page.getByRole("heading", { name: "Retrieved evidence" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
   await expect.poll(() => page.locator(".source-evidence-section, .source-evidence-section *").evaluateAll((elements) => elements.every((element) => element.scrollWidth <= element.clientWidth))).toBe(true);
-  await page.screenshot({ path: "artifacts/codex-lab-live-mobile.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-live-mobile.png", fullPage: true });
 });
 
 test("the original paper figure remains bounded in the mobile notebook", async ({ page, request }, testInfo) => {
@@ -1515,7 +1515,7 @@ test("the original paper figure remains bounded in the mobile notebook", async (
     id: notebookId,
     title: "LoRA original architecture figure",
     paperUrl: "https://arxiv.org/abs/2106.09685",
-    image: "codex-lab-python:0.1",
+    image: "rosetta-python:0.1",
     cells: [{ id: "architecture-overview", kind: "markdown", source: `# Architecture\n\n![${caption}](/evidence/source-figure?page=1&caption=${encodeURIComponent(caption)}&label=Figure%201)`, executionCount: null, runStatus: "idle" }],
     comments: [],
     provenance: [{ id: "mobile-source-figure", type: "notebook.created", actor: "agent", summary: "Created mobile source figure contract", createdAt: new Date().toISOString() }],
@@ -1536,7 +1536,7 @@ test("the original paper figure remains bounded in the mobile notebook", async (
   expect(fit.figureRight).toBeLessThanOrEqual(fit.viewport + 1);
   expect(fit.imageRight).toBeLessThanOrEqual(fit.viewport + 1);
   expect(fit.overflow).toBeLessThanOrEqual(0);
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-mobile-original-figure.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-mobile-original-figure.png", fullPage: true });
 });
 
 test("every workspace tab has a direct return to the active study", async ({ page, request }, testInfo) => {
@@ -1589,15 +1589,15 @@ test("mobile annotations return to chat with a full-width notebook artifact", as
   await expect(artifactPane).toHaveCSS("width", `${await page.evaluate(() => window.innerWidth)}px`);
   await expect(page.getByLabel("Message the research workspace")).toHaveValue("Explain how this mechanism changes the optimization path.");
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
-  await page.screenshot({ path: "artifacts/codex-for-ai-researcher-mobile-annotation-pane.png", fullPage: true });
+  await page.screenshot({ path: "artifacts/rosetta-mobile-annotation-pane.png", fullPage: true });
 });
 
 test("desktop package onboarding exposes real local prerequisites without blocking source tools", async ({ page }, testInfo) => {
   await page.addInitScript(() => {
-    Object.defineProperty(window, "codexDesktop", { value: {
-      getInfo: () => Promise.resolve({ appName: "Codex for AI researcher", version: "0.1.0", platform: "darwin", dataPath: "/Users/researcher/Library/Application Support/Codex for AI researcher/workspace" }),
+    Object.defineProperty(window, "rosettaDesktop", { value: {
+      getInfo: () => Promise.resolve({ appName: "Rosetta", version: "0.1.0", platform: "darwin", dataPath: "/Users/researcher/Library/Application Support/Rosetta/workspace" }),
       signInCodex: () => Promise.resolve({ ok: true, message: "Codex sign-in completed" }),
-      buildRunner: () => Promise.resolve({ ok: true, message: "Built codex-lab-python:0.1" }),
+      buildRunner: () => Promise.resolve({ ok: true, message: "Built rosetta-python:0.1" }),
       showDataFolder: () => Promise.resolve({ ok: true, message: "Opened local data folder" }),
     } });
   });

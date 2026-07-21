@@ -1,6 +1,6 @@
 node_modules
 dist
-.paperlab
+.rosetta
 .venv-smoke
 artifacts
 .playwright

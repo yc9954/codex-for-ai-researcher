@@ -19,8 +19,8 @@ describe("GPT-5.6 model routing", () => {
   });
 
   it("supports explicit family overrides without accepting shell-like model values", () => {
-    expect(codexModelRoute("figure-reproduction", { CODEX_LAB_MODEL_SOL: "gpt-5.6-sol-snapshot" })).toMatchObject({ model: "gpt-5.6-sol-snapshot" });
-    expect(codexModelRoute("figure-reproduction", { CODEX_LAB_MODEL_SOL: "gpt-5.6-sol; rm -rf /" })).toMatchObject({ model: "gpt-5.6-sol" });
+    expect(codexModelRoute("figure-reproduction", { ROSETTA_MODEL_SOL: "gpt-5.6-sol-snapshot" })).toMatchObject({ model: "gpt-5.6-sol-snapshot" });
+    expect(codexModelRoute("figure-reproduction", { ROSETTA_MODEL_SOL: "gpt-5.6-sol; rm -rf /" })).toMatchObject({ model: "gpt-5.6-sol" });
   });
 });
 
@@ -525,7 +525,7 @@ The method freezes the base model. It learns a compact task update.
 
   it("writes the app-isolated Modal profile instead of persisting stdin placeholders", () => {
     const profile = modalProfileContents("ak-test_id", "as-test_secret");
-    expect(profile).toContain("[codex-lab]");
+    expect(profile).toContain("[rosetta]");
     expect(profile).toContain("token_id = 'ak-test_id'");
     expect(profile).toContain("token_secret = 'as-test_secret'");
     expect(profile).not.toContain("token_id = '-'");
@@ -580,7 +580,7 @@ The method freezes the base model. It learns a compact task update.
   });
 
   it("maps persisted local run figures to the manifest-checked HTTP endpoint", () => {
-    expect(markdownImageUrl("/Users/research/.paperlab/runs/run-20260720-abc123/paper-values.png")).toBe("/api/runs/run-20260720-abc123/artifacts/paper-values.png");
+    expect(markdownImageUrl("/Users/research/.rosetta/runs/run-20260720-abc123/paper-values.png")).toBe("/api/runs/run-20260720-abc123/artifacts/paper-values.png");
     expect(markdownImageUrl("/tmp/runs/run-safe/../secret.png")).toBe("/tmp/runs/run-safe/../secret.png");
     expect(markdownImageUrl("/tmp/runs/run-safe/metrics.json")).toBe("/tmp/runs/run-safe/metrics.json");
   });

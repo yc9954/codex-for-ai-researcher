@@ -7,7 +7,7 @@ const profile = profileArg?.split("=")[1] || "core";
 if (!new Set(["core", "full"]).has(profile)) throw new Error(`Unknown harness profile: ${profile}`);
 
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const outputDirectory = join(process.cwd(), ".paperlab", "harness");
+const outputDirectory = join(process.cwd(), ".rosetta", "harness");
 const runId = `harness-${new Date().toISOString().replace(/[-:.TZ]/g, "")}`;
 const resultPath = join(outputDirectory, `${runId}.json`);
 const startedAt = new Date();

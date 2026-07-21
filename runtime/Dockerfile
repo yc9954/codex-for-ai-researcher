@@ -13,5 +13,5 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /workspace
 USER 10001:10001
 
-LABEL org.opencontainers.image.title="Codex for AI researcher Python Runner" \
+LABEL org.opencontainers.image.title="Rosetta Python Runner" \
       org.opencontainers.image.description="Pinned CPU runtime for executable research knowledge units"

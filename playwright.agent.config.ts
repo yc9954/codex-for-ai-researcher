@@ -12,6 +12,6 @@ export default defineConfig({
     url: "http://127.0.0.1:4475",
     reuseExistingServer: false,
     timeout: 30_000,
-    env: { CODEX_LAB_DATA_ROOT: ".paperlab/agent-live", CODEX_LAB_AGENT_ENABLED: "1" },
+    env: { ROSETTA_DATA_ROOT: ".rosetta/agent-live", ROSETTA_AGENT_ENABLED: "1" },
   },
 });

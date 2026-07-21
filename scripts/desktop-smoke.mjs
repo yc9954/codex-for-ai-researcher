@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import electron from "electron";
 
-const dataRoot = await mkdtemp(join(tmpdir(), "codex-researcher-desktop-"));
+const dataRoot = await mkdtemp(join(tmpdir(), "rosetta-desktop-"));
 
 try {
   const result = await new Promise((resolve) => {
@@ -15,9 +15,9 @@ try {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        CODEX_LAB_AGENT_ENABLED: "0",
-        CODEX_LAB_DATA_ROOT: dataRoot,
-        CODEX_LAB_DESKTOP_SMOKE: "1",
+        ROSETTA_AGENT_ENABLED: "0",
+        ROSETTA_DATA_ROOT: dataRoot,
+        ROSETTA_DESKTOP_SMOKE: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
