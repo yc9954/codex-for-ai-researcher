@@ -25,12 +25,6 @@
   · <a href="#try-the-lora-sample">LoRA sample</a>
 </p>
 
-<p align="center">
-  <img src="docs/assets/rosetta-tour.gif" alt="Rosetta product tour showing cited PDF evidence, an executable learning notebook, retained results, and GPT-5.6 routing" width="100%" />
-</p>
-
-<p align="center"><sub>From a cited claim to its PDF evidence, executable lesson, retained results, and model route.</sub></p>
-
 Rosetta is a local-first learning workbench for AI engineers. It reads a paper and its pinned implementation, identifies the ideas a learner must understand, and turns those ideas into small experiments that can run on the learner's computer or an approved Modal GPU. It does not claim that a laptop-sized demonstration reproduces a paper's full benchmark. Instead, it keeps four kinds of evidence separate:
 
 1. what the paper reports;
@@ -61,18 +55,40 @@ Each notebook follows a deliberate learning sequence rather than presenting a su
 5. **Interpret.** Place observations beside the code and figures, separating what the run establishes from what the original paper reports.
 6. **Transfer.** Finish with a mental model, appropriate use cases, limitations, and a scale-up checklist for moving toward the reported experiment.
 
-<p align="center">
-  <img src="docs/assets/learning-notebook.png" alt="A Rosetta LoRA lesson showing the original architecture beside retained training figures and data files" width="100%" />
-</p>
+## See Rosetta work
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/source-evidence.png" alt="Pinned LoRA PDF with an exact cited passage highlighted" /></td>
-    <td width="50%"><img src="docs/assets/model-routing.png" alt="GPT-5.6 model routing policy in the Connectors view" /></td>
+    <td width="34%" valign="top">
+      <h3>Read every claim at its source</h3>
+      <p>Select a citation to open the pinned PDF at the exact page and highlight the closest supporting passage.</p>
+      <p><sub>Paper claims stay distinguishable from Rosetta's explanation.</sub></p>
+    </td>
+    <td width="66%"><img src="docs/assets/feature-source-evidence.gif" alt="A Rosetta citation opening the pinned LoRA PDF at its highlighted source passage" /></td>
   </tr>
   <tr>
-    <td><strong>Evidence that opens at the source</strong><br/>A claim links to the pinned PDF page and highlights the closest exact passage.</td>
-    <td><strong>Routing that is inspectable</strong><br/>The active model policy is visible in the app and recorded with every model-backed result.</td>
+    <td width="34%" valign="top">
+      <h3>Learn the mechanism in order</h3>
+      <p>Move from thesis and definitions to equations, the original architecture, editable code, and a prediction before execution.</p>
+      <p><sub>The notebook teaches why each component exists, not only how to type it.</sub></p>
+    </td>
+    <td width="66%"><img src="docs/assets/feature-learning-notebook.gif" alt="A Rosetta learning notebook moving from definitions and equations to the original figure and executable code" /></td>
+  </tr>
+  <tr>
+    <td width="34%" valign="top">
+      <h3>Keep results with the run</h3>
+      <p>Inspect generated figures and data files beside their producing cell, then freeze them into a Jupyter-compatible evidence bundle.</p>
+      <p><sub>Every retained output remains tied to its code, run manifest, and execution image.</sub></p>
+    </td>
+    <td width="66%"><img src="docs/assets/feature-run-outputs.gif" alt="Rosetta retaining generated figures, data files, and a reproducible notebook bundle without comments" /></td>
+  </tr>
+  <tr>
+    <td width="34%" valign="top">
+      <h3>Inspect how the agent works</h3>
+      <p>See the GPT-5.6 route used for each workload and manage the agents, automatic hooks, and explicit skills that shape the workflow.</p>
+      <p><sub>Model choice and reasoning effort are recorded with model-backed artifacts.</sub></p>
+    </td>
+    <td width="66%"><img src="docs/assets/feature-model-routing.gif" alt="Rosetta showing GPT-5.6 routing and switching among agent, hook, and skill connectors" /></td>
   </tr>
 </table>
 
@@ -209,7 +225,7 @@ Codex was used both to build the product and as the product's local research run
 - Converted repeated review feedback into repository-wide contracts for PDF rendering, math normalization, source citations, annotation positioning, dataset navigation, Modal cancellation, and artifact retention.
 - Implemented and repeatedly ran a back-pressure loop: ESLint, TypeScript, unit contracts, production build, Electron smoke, preview budget, desktop/mobile Playwright, and Docker execution.
 - Diagnosed the packaged Electron-only `remark-parse` interop failure, fixed the CommonJS boundary, and strengthened the desktop smoke to perform a real LoRA paper/repository intake.
-- Used screenshots and a short product tour as verification evidence while keeping only representative public media in this repository.
+- Used screenshots and four focused feature clips as verification evidence while keeping only representative public media in this repository.
 
 ### Inside the product
 
