@@ -19,7 +19,7 @@
   <img alt="GPT-5.6 routed" src="https://img.shields.io/badge/GPT--5.6-routed-2f2f2f" />
 </p>
 
-<h2 align="center"><a href="https://github.com/yc9954/rosetta/releases/latest">Download Rosetta</a></h2>
+<h2 align="center"><a href="https://github.com/yc9954/rosetta/releases/download/v0.1.1/Rosetta-0.1.1-arm64.dmg">Download Rosetta</a></h2>
 
 <p align="center">
   <a href="https://github.com/yc9954/rosetta/releases/latest"><img src="docs/assets/rosetta-workbench.png" alt="Rosetta showing a source-grounded learning notebook beside executable outputs" width="100%" /></a>
