@@ -2524,11 +2524,22 @@ async function extractPaperDocument(paper: PaperInspection): Promise<{ document:
     }
 
     await mkdir(cacheDir, { recursive: true });
-    const source = await fetchBuffer(sourceUrl, PAPER_PDF_HOSTS, MAX_PDF_BYTES);
-    if (!source.subarray(0, 1_024).includes(Buffer.from("%PDF-"))) throw new ApiError("The paper PDF URL did not return a PDF document", 422);
     const sourcePath = join(cacheDir, "source.pdf");
+    let source: Buffer | null = null;
+    let retrievalMode: "live" | "cache" = "cache";
+    try {
+      const cachedSource = await readFile(sourcePath);
+      if (cachedSource.subarray(0, 1_024).includes(Buffer.from("%PDF-"))) source = cachedSource;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (!source) {
+      source = await fetchBuffer(sourceUrl, PAPER_PDF_HOSTS, MAX_PDF_BYTES);
+      if (!source.subarray(0, 1_024).includes(Buffer.from("%PDF-"))) throw new ApiError("The paper PDF URL did not return a PDF document", 422);
+      await writeFile(sourcePath, source);
+      retrievalMode = "live";
+    }
     const workerOutput = join(cacheDir, `.pages-${randomUUID()}.json`);
-    await writeFile(sourcePath, source);
     try {
       await runPdfExtractorWorker(sourcePath, workerOutput);
       const extracted = parseInput(ExtractedPagesSchema, JSON.parse(await readFile(workerOutput, "utf8")));
@@ -2548,10 +2559,65 @@ async function extractPaperDocument(paper: PaperInspection): Promise<{ document:
         textPath: relative(process.cwd(), pagesPath),
       };
       await atomicJson(metadataPath, document);
-      return { document, pagesPath, retrievalMode: "live" as const };
+      return { document, pagesPath, retrievalMode };
     } finally {
       await unlink(workerOutput).catch(() => undefined);
     }
+  });
+}
+
+function isPaperExtractionWarning(warning: string): boolean {
+  return warning.startsWith("Full paper text could not be extracted:");
+}
+
+async function retryStudyPaperExtraction(studyIdValue: string): Promise<StudyInspection> {
+  const studyId = safeId(studyIdValue);
+  const studyDir = join(STUDIES_ROOT, studyId);
+  return withWriteLock(`study:${studyId}`, async () => {
+    let study: StudyInspection;
+    try {
+      study = JSON.parse(await readFile(join(studyDir, "intake.json"), "utf8")) as StudyInspection;
+    } catch {
+      throw new ApiError("Study was not found", 404);
+    }
+    if (!study.paper?.pdfUrl) throw new ApiError("This study does not expose a retrievable paper PDF. Upload a text-extractable PDF instead.", 422);
+
+    const extracted = await extractPaperDocument(study.paper);
+    const studyPagesPath = join(studyDir, "paper-pages.json");
+    await copyFile(extracted.pagesPath, studyPagesPath);
+    const paperDocument: PaperDocumentInspection = {
+      ...extracted.document,
+      retrievalMode: extracted.retrievalMode,
+      textPath: relative(process.cwd(), studyPagesPath),
+    };
+    const updated: StudyInspection = {
+      ...study,
+      paperDocument,
+      warnings: study.warnings.filter((warning) => !isPaperExtractionWarning(warning)),
+    };
+    await atomicJson(join(studyDir, "intake.json"), updated);
+    try {
+      const latest = JSON.parse(await readFile(join(STUDIES_ROOT, "latest.json"), "utf8")) as StudyInspection;
+      if (latest.studyId === studyId) await atomicJson(join(STUDIES_ROOT, "latest.json"), updated);
+    } catch {
+      // The immutable intake remains authoritative when no latest-study pointer exists.
+    }
+    await appendFile(join(studyDir, "provenance.jsonl"), `${JSON.stringify({
+      id: randomUUID(),
+      type: "paper.extracted",
+      actor: "intake-agent",
+      createdAt: new Date().toISOString(),
+      summary: `Recovered full-text evidence for ${study.paper.title}`,
+      sources: {
+        paper: study.paper.url,
+        paperPdf: paperDocument.sourceUrl,
+        paperSha256: paperDocument.sha256,
+        paperPages: paperDocument.retainedPages,
+        paperExtractor: paperDocument.extractor,
+        paperRetrievalMode: paperDocument.retrievalMode,
+      },
+    })}\n`, "utf8");
+    return updated;
   });
 }
 
@@ -6844,6 +6910,14 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boo
   if (req.method === "POST" && url.pathname === "/api/studies/inspect") {
     const body = parseInput(StudyInspectSchema, await readJsonBody(req));
     sendJson(res, 200, await inspectStudy(body));
+    return true;
+  }
+
+  const studyPaperExtractionMatch = url.pathname.match(/^\/api\/studies\/([^/]+)\/paper\/extract$/);
+  if (req.method === "POST" && studyPaperExtractionMatch) {
+    assertLoopbackRequest(req);
+    parseInput(z.object({}).strict(), await readJsonBody(req));
+    sendJson(res, 200, await retryStudyPaperExtraction(studyPaperExtractionMatch[1]));
     return true;
   }
 

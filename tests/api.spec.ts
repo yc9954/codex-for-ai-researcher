@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ResearchNotebook } from "../src/notebook-types";
 
@@ -107,6 +107,37 @@ test("API exposes hardened response headers and bounded schema failures", async 
   });
   expect(invalidImage.status()).toBe(400);
   await expect(invalidImage.json()).resolves.toMatchObject({ error: expect.stringContaining("runner image is not allowed") });
+});
+
+test("a failed paper intake recovers text from its locally cached PDF", async ({ request }, testInfo) => {
+  test.skip(testInfo.project.name.includes("mobile"), "API contracts run once in the desktop project");
+  const latest = await request.get("/api/studies/latest").then((response) => response.json()) as { studyId: string };
+  const intakePath = resolve(".rosetta/e2e/studies", latest.studyId, "intake.json");
+  const latestPath = resolve(".rosetta/e2e/studies/latest.json");
+  const original = JSON.parse(await readFile(intakePath, "utf8")) as { paperDocument?: { sourceUrl: string }; warnings: string[] } & Record<string, unknown>;
+  expect(original.paperDocument?.sourceUrl).toBe("https://arxiv.org/pdf/2106.09685");
+  const cacheKey = createHash("sha256").update(original.paperDocument!.sourceUrl).digest("hex");
+  const cacheDir = resolve(".rosetta/e2e/sources/papers", cacheKey);
+  await Promise.all([
+    rm(resolve(cacheDir, "document.json"), { force: true }),
+    rm(resolve(cacheDir, "pages.json"), { force: true }),
+    rm(resolve(".rosetta/e2e/studies", latest.studyId, "paper-pages.json"), { force: true }),
+  ]);
+  const failed = { ...original, paperDocument: undefined, warnings: [...original.warnings, "Full paper text could not be extracted: packaged worker was unavailable"] };
+  await Promise.all([
+    writeFile(intakePath, `${JSON.stringify(failed)}\n`, "utf8"),
+    writeFile(latestPath, `${JSON.stringify(failed)}\n`, "utf8"),
+  ]);
+
+  const recovered = await request.post(`/api/studies/${latest.studyId}/paper/extract`, { data: {} });
+  expect(recovered.status()).toBe(200);
+  await expect(recovered.json()).resolves.toMatchObject({
+    studyId: latest.studyId,
+    paperDocument: { retrievalMode: "cache", totalPages: 26, retainedPages: 26, extractor: "unpdf-pdfjs" },
+  });
+  const persisted = JSON.parse(await readFile(intakePath, "utf8")) as { paperDocument?: { characterCount: number }; warnings: string[] };
+  expect(persisted.paperDocument?.characterCount).toBeGreaterThan(10_000);
+  expect(persisted.warnings).not.toEqual(expect.arrayContaining([expect.stringContaining("Full paper text could not be extracted")]));
 });
 
 test("connector agents, skills, and hooks persist, validate their namespaces, and remain reversible", async ({ request }, testInfo) => {

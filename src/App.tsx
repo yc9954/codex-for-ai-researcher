@@ -286,6 +286,7 @@ export default function App() {
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
+  const [paperExtractionBusy, setPaperExtractionBusy] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
@@ -429,6 +430,30 @@ export default function App() {
     setMessageActivity(null);
     setMessageSendError("");
     setMessagesRevision((current) => current + 1);
+  }
+
+  async function retryPaperExtraction(): Promise<void> {
+    if (!study || paperExtractionBusy) return;
+    const studyId = study.studyId;
+    setPaperExtractionBusy(true);
+    setWorkspaceError("");
+    try {
+      const response = await fetch(`/api/studies/${encodeURIComponent(studyId)}/paper/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json() as StudyInspection & { error?: string };
+      if (!response.ok || !body.studyId) throw new Error(body.error || "Paper text could not be extracted");
+      if (activeStudyIdRef.current !== studyId) return;
+      setStudy(body);
+      setStudies((current) => [body, ...current.filter((candidate) => candidate.studyId !== studyId)]);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (activeStudyIdRef.current === studyId) setWorkspaceError(detail);
+    } finally {
+      setPaperExtractionBusy(false);
+    }
   }
 
   function retryConnectors() {
@@ -697,9 +722,9 @@ export default function App() {
           {view === "notebook" && study ? <Suspense fallback={<section className="primary-workspace notebook-workspace"><div className="study-empty-state"><LoaderCircle className="spin" size={22} /><strong>Loading notebook workspace</strong></div></section>}><NotebookStudio key={study.studyId} inspectorOpen={inspectorOpen} study={study} onOpenEvidence={openEvidence} onSendAnnotation={sendNotebookAnnotation} autoGenerate={Boolean(profile?.codexAgent.ready)} /></Suspense> : (
             <>
               <section className="primary-workspace">
-                {view === "agent" && <AgentView key={study?.studyId || "empty-study"} study={study} profile={profile} loading={workspaceLoading} error={workspaceError} messages={messages} messagesLoading={messagesLoading} messagesError={messagesError} messageSendError={messageSendError} onRetryMessages={retryMessages} onDismissSendError={() => setMessageSendError("")} recording={recordingMessage} activity={messageActivity} draft={draft} setDraft={setDraft} sendMessage={sendMessage} skills={chatCommands} agents={selectableAgents} selectedAgentId={effectiveSelectedAgentId} onAgentChange={setSelectedAgentId} onNewStudy={() => setNewStudyOpen(true)} onRetry={retryWorkspace} onOpenSources={openSources} onOpenEvidence={openEvidence} onNavigate={selectView} annotation={activeAnnotation} onClearAnnotation={() => setActiveAnnotation(null)} />}
-                {view === "sources" && <SourcesView study={study} evidenceTarget={evidenceTarget} onNewStudy={() => setNewStudyOpen(true)} />}
-                {view === "datasets" && <DatasetView key={study?.studyId || "empty-datasets"} study={study} profile={profile} onNewStudy={() => setNewStudyOpen(true)} onOpenEvidence={openEvidence} />}
+                {view === "agent" && <AgentView key={study?.studyId || "empty-study"} study={study} profile={profile} loading={workspaceLoading} error={workspaceError} messages={messages} messagesLoading={messagesLoading} messagesError={messagesError} messageSendError={messageSendError} onRetryMessages={retryMessages} onDismissSendError={() => setMessageSendError("")} recording={recordingMessage} activity={messageActivity} draft={draft} setDraft={setDraft} sendMessage={sendMessage} skills={chatCommands} agents={selectableAgents} selectedAgentId={effectiveSelectedAgentId} onAgentChange={setSelectedAgentId} onNewStudy={() => setNewStudyOpen(true)} onRetry={retryWorkspace} onRetryPaperExtraction={retryPaperExtraction} paperExtractionBusy={paperExtractionBusy} onOpenSources={openSources} onOpenEvidence={openEvidence} onNavigate={selectView} annotation={activeAnnotation} onClearAnnotation={() => setActiveAnnotation(null)} />}
+                {view === "sources" && <SourcesView study={study} evidenceTarget={evidenceTarget} onNewStudy={() => setNewStudyOpen(true)} onRetryPaperExtraction={retryPaperExtraction} paperExtractionBusy={paperExtractionBusy} />}
+                {view === "datasets" && <DatasetView key={study?.studyId || "empty-datasets"} study={study} profile={profile} onNewStudy={() => setNewStudyOpen(true)} onOpenEvidence={openEvidence} onRetryPaperExtraction={retryPaperExtraction} paperExtractionBusy={paperExtractionBusy} />}
                 {view === "notebook" && <UnavailableView title="No source notebook" detail="A pinned source is required before an executable evidence notebook can be generated." action="Open source intake" onAction={() => setNewStudyOpen(true)} />}
                 {view === "runs" && <ExecutionView key={study?.studyId || "empty-runs"} study={study} profile={profile} notebookAvailable={notebookAvailable} onOpenNotebook={() => selectView("notebook")} />}
                 {view === "remote" && <RemoteView key={study?.studyId || "empty-remote"} study={study} onNewStudy={() => setNewStudyOpen(true)} onOpenNotebook={() => selectView("notebook")} onOpenRuns={() => selectView("runs")} />}
@@ -746,7 +771,7 @@ function NavItem({ label, icon: Icon, active = false, collapsed = false, onClick
   );
 }
 
-function AgentView({ study, profile, loading, error, messages, messagesLoading, messagesError, messageSendError, onRetryMessages, onDismissSendError, recording, activity, draft, setDraft, sendMessage, skills, agents, selectedAgentId, onAgentChange, onNewStudy, onRetry, onOpenSources, onOpenEvidence, onNavigate, annotation, onClearAnnotation }: {
+function AgentView({ study, profile, loading, error, messages, messagesLoading, messagesError, messageSendError, onRetryMessages, onDismissSendError, recording, activity, draft, setDraft, sendMessage, skills, agents, selectedAgentId, onAgentChange, onNewStudy, onRetry, onRetryPaperExtraction, paperExtractionBusy, onOpenSources, onOpenEvidence, onNavigate, annotation, onClearAnnotation }: {
   study: StudyInspection | null;
   profile: SystemProfile | null;
   loading: boolean;
@@ -768,6 +793,8 @@ function AgentView({ study, profile, loading, error, messages, messagesLoading, 
   onAgentChange: (id: string | null) => void;
   onNewStudy: () => void;
   onRetry: () => void;
+  onRetryPaperExtraction: () => Promise<void>;
+  paperExtractionBusy: boolean;
   onOpenSources: () => void;
   onOpenEvidence: (citation: EvidenceCitation) => void;
   onNavigate: (view: View) => void;
@@ -877,7 +904,7 @@ function AgentView({ study, profile, loading, error, messages, messagesLoading, 
   const buildDetail = notebookReady
     ? "An executable learning notebook is available"
     : !study.paperDocument
-      ? "Upload a text-extractable PDF before generating a learning demo"
+      ? "Recover the paper PDF before generating a learning demo"
       : !profile?.codexAgent.ready
         ? "A signed-in local Codex agent is required to generate the demo"
         : "Create a minimal PDF-grounded mechanism demo and smoke-test its code";
@@ -887,7 +914,16 @@ function AgentView({ study, profile, loading, error, messages, messagesLoading, 
     state: "done" | "skipped" | "available" | "current" | "next";
     action?: { label: string; onClick: () => void; disabled?: boolean; primary?: boolean; busy?: boolean };
   }> = [
-    { label: "Inspect", detail: study.paperDocument ? "Remote metadata and full-text evidence are locally pinned" : "Remote metadata is pinned; full-text evidence is unavailable", state: "done" },
+    study.paperDocument ? {
+      label: "Inspect",
+      detail: "Remote metadata and full-text evidence are locally pinned",
+      state: "done",
+    } : {
+      label: "Inspect",
+      detail: "Paper metadata is pinned, but its local PDF text must be recovered before the next stages can run",
+      state: "current",
+      action: { label: paperExtractionBusy ? "Recovering" : "Recover", onClick: () => void onRetryPaperExtraction(), disabled: paperExtractionBusy, primary: true, busy: paperExtractionBusy },
+    },
     study.repository ? {
       label: "Adapt",
       detail: compatibility?.status === "blocked"
@@ -1145,7 +1181,7 @@ function RepositoryEvidence({ repository }: { repository: RepositoryInspection }
   );
 }
 
-function SourcesView({ study, evidenceTarget, onNewStudy }: { study: StudyInspection | null; evidenceTarget: EvidenceCitation | null; onNewStudy: () => void }) {
+function SourcesView({ study, evidenceTarget, onNewStudy, onRetryPaperExtraction, paperExtractionBusy }: { study: StudyInspection | null; evidenceTarget: EvidenceCitation | null; onNewStudy: () => void; onRetryPaperExtraction: () => Promise<void>; paperExtractionBusy: boolean }) {
   const [paperPageRequest, setPaperPageRequest] = useState<{ key: string; data?: PaperPageEvidence; error?: string } | null>(null);
   const [paperPageRevision, setPaperPageRevision] = useState(0);
   const evidencePanelRef = useRef<HTMLElement>(null);
@@ -1205,6 +1241,7 @@ function SourcesView({ study, evidenceTarget, onNewStudy }: { study: StudyInspec
           <footer><span>Exact quote highlighted on the pinned PDF page</span><code title={paperPage.paperSha256}>sha256:{paperPage.paperSha256.slice(0, 12)}</code></footer>
         </>}
       </section>}
+      {!study.paperDocument && <section className="source-warning source-extraction-warning" role="alert"><AlertCircle size={15} /><span>Paper metadata was saved, but full-text extraction did not finish. Recover the locally cached PDF to unlock evidence, datasets, and notebook generation.</span><button type="button" className="quiet-button" onClick={() => void onRetryPaperExtraction()} disabled={paperExtractionBusy}>{paperExtractionBusy ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}{paperExtractionBusy ? "Recovering" : "Retry paper extraction"}</button></section>}
       {study.paper && <section className="source-evidence-section"><header><FileText size={17} /><div><span>Paper</span><h2>{study.paper.title}</h2></div></header>{study.paper.authors.length > 0 && <p className="source-authors">{study.paper.authors.join(", ")}</p>}{study.paper.abstract && <p>{study.paper.abstract}</p>}<dl><div><dt>Source</dt><dd>{study.paper.source}</dd></div><div><dt>Identifier</dt><dd>{study.paper.identifier || "Not exposed"}</dd></div><div><dt>Retrieved</dt><dd>{new Date(study.createdAt).toLocaleString()}</dd></div>{study.paperDocument ? <><div><dt>Full text</dt><dd>{study.paperDocument.retainedPages} / {study.paperDocument.totalPages} pages · {study.paperDocument.characterCount.toLocaleString()} characters</dd></div><div><dt>Document hash</dt><dd><code title={study.paperDocument.sha256}>{study.paperDocument.sha256.slice(0, 16)}…</code></dd></div><div><dt>Extraction</dt><dd>{study.paperDocument.extractor} · {study.paperDocument.retrievalMode}</dd></div></> : <div><dt>Full text</dt><dd>Not extracted</dd></div>}</dl></section>}
       {study.repository && <RepositoryEvidence repository={study.repository} />}
       {study.warnings.map((warning) => <div className="source-warning" key={warning}><AlertCircle size={15} />{warning}</div>)}
@@ -1212,7 +1249,7 @@ function SourcesView({ study, evidenceTarget, onNewStudy }: { study: StudyInspec
   );
 }
 
-function DatasetView({ study, profile, onNewStudy, onOpenEvidence }: { study: StudyInspection | null; profile: SystemProfile | null; onNewStudy: () => void; onOpenEvidence: (citation: EvidenceCitation) => void }) {
+function DatasetView({ study, profile, onNewStudy, onOpenEvidence, onRetryPaperExtraction, paperExtractionBusy }: { study: StudyInspection | null; profile: SystemProfile | null; onNewStudy: () => void; onOpenEvidence: (citation: EvidenceCitation) => void; onRetryPaperExtraction: () => Promise<void>; paperExtractionBusy: boolean }) {
   const [plan, setPlan] = useState<DatasetPlan | null>(null);
   const [loading, setLoading] = useState(Boolean(study));
   const [generating, setGenerating] = useState(false);
@@ -1291,7 +1328,7 @@ function DatasetView({ study, profile, onNewStudy, onOpenEvidence }: { study: St
     <div className="content-view dataset-view">
       <div className="content-header"><div><span>Datasets</span><h1>Resource-fit dataset evidence</h1><p>Paper mentions are separated from live Hub metadata and local fit calculations.</p></div>{plan ? <button type="button" className="quiet-button" onClick={() => void generate(true)} disabled={!canGenerate || generating}><RefreshCw className={generating ? "spin" : ""} size={15} /> Refresh</button> : <Database size={20} />}</div>
       {loadError && plan && <div className="source-warning run-load-warning" role="alert"><AlertCircle size={15} /><span>{loadError}. The last loaded dataset plan remains visible.</span><button type="button" onClick={retryDatasetLoad}><RefreshCw size={14} /> Retry</button></div>}
-      {loading ? <section className="execution-empty"><LoaderCircle className="spin" size={22} /><h2>Loading dataset evidence</h2></section> : loadError && !plan ? <section className="execution-empty"><AlertCircle size={22} /><h2>Dataset evidence unavailable</h2><p>{loadError}. No saved plan was replaced.</p><button type="button" className="quiet-button" onClick={retryDatasetLoad}><RefreshCw size={14} /> Retry</button></section> : !plan ? <section className="execution-empty"><Database size={22} /><h2>No dataset plan has run</h2><p>{canGenerate ? "Extract paper dataset mentions and verify current Hub metadata against this machine." : "A signed-in local Codex agent and extracted PDF text are required."}</p><button type="button" className="primary-command" onClick={() => void generate(false)} disabled={!canGenerate || generating}>{generating ? <LoaderCircle className="spin" size={15} /> : <Database size={15} />} Find datasets</button></section> : <>
+      {loading ? <section className="execution-empty"><LoaderCircle className="spin" size={22} /><h2>Loading dataset evidence</h2></section> : loadError && !plan ? <section className="execution-empty"><AlertCircle size={22} /><h2>Dataset evidence unavailable</h2><p>{loadError}. No saved plan was replaced.</p><button type="button" className="quiet-button" onClick={retryDatasetLoad}><RefreshCw size={14} /> Retry</button></section> : !plan && !study.paperDocument ? <section className="execution-empty"><AlertCircle size={22} /><h2>Recover paper text first</h2><p>The paper PDF was downloaded but its text is not yet pinned. Recover it to find paper-specific datasets and calculate a local fit.</p><button type="button" className="primary-command" onClick={() => void onRetryPaperExtraction()} disabled={paperExtractionBusy}>{paperExtractionBusy ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}{paperExtractionBusy ? "Recovering paper" : "Recover paper text"}</button></section> : !plan ? <section className="execution-empty"><Database size={22} /><h2>No dataset plan has run</h2><p>{canGenerate ? "Extract paper dataset mentions and verify current Hub metadata against this machine." : "A signed-in local Codex agent is required to find datasets."}</p><button type="button" className="primary-command" onClick={() => void generate(false)} disabled={!canGenerate || generating}>{generating ? <LoaderCircle className="spin" size={15} /> : <Database size={15} />} Find datasets</button></section> : <>
         {plan.stale && <div className="source-warning" role="status"><AlertCircle size={15} /><span>{plan.migrationNotes?.[0] || "This saved dataset plan uses an older evidence format. Refresh it before using a candidate."}</span></div>}
         <div className="dataset-budget"><span><HardDrive size={16} /><strong>{formatBytes(plan.hardware.freeDiskBytes)}</strong><small>free disk at planning</small></span><span><Cpu size={16} /><strong>{formatBytes(plan.hardware.freeMemoryBytes)}</strong><small>available memory at planning</small></span><code title={plan.paperSha256}>paper {plan.paperSha256.slice(0, 12)}</code></div>
         {plan.selection && <section className="dataset-selection-summary" aria-label="Attached local dataset">

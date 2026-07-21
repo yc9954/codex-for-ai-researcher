@@ -20,12 +20,30 @@ const resourcesRoot = process.platform === "darwin"
 const requiredResources = [
   join(resourcesRoot, "app.asar"),
   join(resourcesRoot, "app-runtime", "scripts", "pdf-extractor-worker.mjs"),
+  join(resourcesRoot, "app-runtime", "node_modules", "unpdf", "package.json"),
   join(resourcesRoot, "app-runtime", "runtime", "Dockerfile"),
   join(resourcesRoot, "app-runtime", "skills", "orchestrate-paper-demo", "SKILL.md"),
 ];
 await Promise.all(requiredResources.map((path) => new Promise((resolve, reject) => {
   access(path, constants.R_OK, (error) => error ? reject(error) : resolve());
 })));
+
+const extractorImport = await new Promise((resolve) => {
+  const child = spawn(executable, [join(resourcesRoot, "app-runtime", "scripts", "pdf-extractor-worker.mjs")], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+  child.on("close", (code) => resolve({ code, stdout, stderr }));
+});
+const extractorOutput = `${extractorImport.stderr}\n${extractorImport.stdout}`;
+if (extractorImport.code === 0 || !extractorOutput.includes("PDF input and output paths are required") || extractorOutput.includes("Cannot find package 'unpdf'")) {
+  process.stderr.write(extractorImport.stderr || extractorImport.stdout || "Packaged PDF extractor did not load its bundled dependency.\n");
+  process.exitCode = 1;
+}
 const dataRoot = await mkdtemp(join(tmpdir(), "rosetta-packaged-"));
 
 try {

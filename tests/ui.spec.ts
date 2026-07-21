@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 async function pinLora(request: APIRequestContext, options: { withNotebook?: boolean } = {}) {
@@ -846,6 +846,35 @@ test("dataset view exposes the real planning gate without placeholder recommenda
   await expect(page.getByRole("heading", { name: "No dataset plan has run" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Find datasets" })).toBeDisabled();
   await expect(page.locator(".dataset-table")).toHaveCount(0);
+});
+
+test("dataset recovery stays actionable when an intake is missing paper text", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name.includes("mobile"), "Desktop-only recovery flow");
+  const study = await pinLora(request, { withNotebook: false }) as { studyId: string; paper: { url: string } };
+  const studyPath = resolve(".rosetta/e2e/studies", study.studyId, "intake.json");
+  const latestPath = resolve(".rosetta/e2e/studies/latest.json");
+  const original = JSON.parse(await readFile(studyPath, "utf8")) as { paperDocument?: { sourceUrl: string }; warnings: string[] } & Record<string, unknown>;
+  const cacheKey = createHash("sha256").update(original.paperDocument!.sourceUrl).digest("hex");
+  const cacheDir = resolve(".rosetta/e2e/sources/papers", cacheKey);
+  await Promise.all([
+    rm(resolve(cacheDir, "document.json"), { force: true }),
+    rm(resolve(cacheDir, "pages.json"), { force: true }),
+    rm(resolve(".rosetta/e2e/studies", study.studyId, "paper-pages.json"), { force: true }),
+  ]);
+  const failed = { ...original, paperDocument: undefined, warnings: [...original.warnings, "Full paper text could not be extracted: packaged worker was unavailable"] };
+  await Promise.all([
+    writeFile(studyPath, `${JSON.stringify(failed)}\n`, "utf8"),
+    writeFile(latestPath, `${JSON.stringify(failed)}\n`, "utf8"),
+  ]);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Datasets" }).click();
+  await expect(page.getByRole("heading", { name: "Recover paper text first" })).toBeVisible();
+  const recover = page.getByRole("button", { name: "Recover paper text" });
+  await expect(recover).toBeEnabled();
+  await recover.click();
+  await expect(page.getByRole("heading", { name: "No dataset plan has run" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Find datasets" })).toBeDisabled();
 });
 
 test("remote view separates local planning from explicit external launch approval", async ({ page, request }, testInfo) => {

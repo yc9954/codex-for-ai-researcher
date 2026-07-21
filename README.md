@@ -19,10 +19,8 @@
   <img alt="GPT-5.6 routed" src="https://img.shields.io/badge/GPT--5.6-routed-2f2f2f" />
 </p>
 
-<h2 align="center"><a href="https://github.com/yc9954/rosetta/releases/download/v0.1.1/Rosetta-0.1.1-arm64.dmg">Download Rosetta</a></h2>
-
 <p align="center">
-  <a href="https://github.com/yc9954/rosetta/releases/latest"><img src="docs/assets/rosetta-workbench.png" alt="Rosetta showing a source-grounded learning notebook beside executable outputs" width="100%" /></a>
+  <img src="docs/assets/rosetta-workbench.png" alt="Rosetta showing a source-grounded learning notebook beside executable outputs" width="100%" />
 </p>
 
 Rosetta is a local-first learning workbench for AI engineers. It reads a paper and its pinned implementation, identifies the ideas a learner must understand, and turns those ideas into small experiments that can run on the learner's computer or an approved Modal GPU. It does not claim that a laptop-sized demonstration reproduces a paper's full benchmark. Instead, it keeps four kinds of evidence separate:

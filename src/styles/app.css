@@ -365,6 +365,9 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .implementation-symbols strong { margin-right: 5px; color: var(--text-tertiary); font-size: 10px; font-weight: 500; }
 .implementation-symbols code { padding: 0; background: transparent; color: var(--text-secondary); font-size: 11px; white-space: normal; }
 .source-warning { display: flex; align-items: flex-start; gap: 8px; max-width: 960px; margin: 10px auto; color: #e9bd66; font-size: 12px; }
+.source-extraction-warning { align-items: center; padding: 10px 0; border-bottom: 1px solid #6d5530; }
+.source-extraction-warning > span { flex: 1; }
+.source-extraction-warning .quiet-button { flex: 0 0 auto; }
 .run-load-warning { align-items: center; padding: 8px 0; border-bottom: 1px solid #6d5530; }
 .runtime-evidence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 960px; margin: 0 auto; overflow: hidden; border: 1px solid var(--border-default); border-radius: var(--radius-lg); }
 .runtime-evidence-grid > div { display: flex; align-items: flex-start; gap: 10px; min-width: 0; min-height: 88px; padding: 16px; border-right: 1px solid var(--border-light); }

@@ -1,7 +1,7 @@
 {
   "name": "rosetta",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Decode ML papers into evidence-linked lessons and hardware-aware executable experiments.",
   "author": "Rosetta contributors",
   "main": "dist-electron/main.cjs",
@@ -50,6 +50,10 @@
       {
         "from": "scripts/pdf-extractor-worker.mjs",
         "to": "app-runtime/scripts/pdf-extractor-worker.mjs"
+      },
+      {
+        "from": "node_modules/unpdf",
+        "to": "app-runtime/node_modules/unpdf"
       },
       {
         "from": "skills",
