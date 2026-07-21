@@ -291,6 +291,9 @@ npm run modal:smoke
 ## Verification
 
 ```bash
+# First time only: install the browser used by Playwright checks
+npx playwright install chromium
+
 # Portable gate: lint, unit contracts, skill contracts, types,
 # production build, Electron intake smoke, preview smoke, Playwright
 npm run verify
