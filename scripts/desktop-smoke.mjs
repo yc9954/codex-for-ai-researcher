@@ -8,7 +8,10 @@ const dataRoot = await mkdtemp(join(tmpdir(), "codex-researcher-desktop-"));
 
 try {
   const result = await new Promise((resolve) => {
-    const child = spawn(electron, ["dist-electron/main.cjs", "--desktop-smoke"], {
+    const electronArgs = process.env.CI && process.platform === "linux"
+      ? ["--no-sandbox", "dist-electron/main.cjs", "--desktop-smoke"]
+      : ["dist-electron/main.cjs", "--desktop-smoke"];
+    const child = spawn(electron, electronArgs, {
       cwd: process.cwd(),
       env: {
         ...process.env,
