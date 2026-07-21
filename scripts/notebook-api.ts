@@ -2963,7 +2963,7 @@ export function parseNvidiaSmiOutput(output: string): HardwareAcceleratorProfile
   });
 }
 
-export function parseAppleDisplayProfile(value: unknown): HardwareAcceleratorProfile[] {
+export function parseAppleDisplayProfile(value: unknown, hostArchitecture: NodeJS.Architecture = arch()): HardwareAcceleratorProfile[] {
   const root = asRecord(value);
   const entries = Array.isArray(root?.SPDisplaysDataType) ? root.SPDisplaysDataType : [];
   return entries.flatMap((entry) => {
@@ -2976,7 +2976,7 @@ export function parseAppleDisplayProfile(value: unknown): HardwareAcceleratorPro
       backend: "mps" as const,
       name,
       memoryBytes: parseByteCapacity(display.spdisplays_vram || display.spdisplays_vram_shared),
-      memoryKind: arch() === "arm64" ? "unified" as const : "unknown" as const,
+      memoryKind: hostArchitecture === "arm64" ? "unified" as const : "unknown" as const,
       driver: null,
       detectedBy: "system_profiler",
       localRunnerAccess: false,

@@ -118,7 +118,7 @@ describe("code-adjacent learning context", () => {
 
 describe("hardware-aware compactification", () => {
   it("parses Apple and NVIDIA observations without claiming local-runner access", () => {
-    expect(parseAppleDisplayProfile({ SPDisplaysDataType: [{ _name: "Apple M5", spdisplays_mtlgpufamilysupport: "metal4" }] })).toEqual([
+    expect(parseAppleDisplayProfile({ SPDisplaysDataType: [{ _name: "Apple M5", spdisplays_mtlgpufamilysupport: "metal4" }] }, "arm64")).toEqual([
       expect.objectContaining({ backend: "mps", name: "Apple M5", memoryKind: "unified", localRunnerAccess: false, detectedBy: "system_profiler" }),
     ]);
     expect(parseNvidiaSmiOutput("NVIDIA A100-SXM4-40GB, 40960, 590.12\n")).toEqual([
